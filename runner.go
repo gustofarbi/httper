@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"httper/pkg/finalize"
 	"httper/pkg/request"
+	"httper/pkg/script"
 	"io"
 	"log/slog"
 	"net/http"
@@ -33,6 +34,7 @@ type Result struct {
 	Err        error
 	Header     http.Header
 	Body       []byte
+	Tests      []script.TestResult
 }
 
 // clientFor copies the base client and applies per-request directives. The

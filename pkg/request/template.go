@@ -2,6 +2,7 @@ package request
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -23,15 +24,29 @@ type Directives struct {
 	Timeout     time.Duration
 }
 
+// Script is a pre-request or response handler script: inline `{% ... %}`
+// code, or a path to a .js file relative to the .http file.
+type Script struct {
+	Code string
+	Path string
+}
+
+func (s Script) Empty() bool {
+	return s.Code == "" && s.Path == ""
+}
+
 // Template is a single request block with its raw sections still containing
 // {{placeholders}}. Resolution happens at Build time, just before sending, so
-// later requests can use variables produced by earlier responses.
+// later requests can use variables produced by earlier responses. Scripts are
+// never resolved — {{ }} inside script source stays untouched.
 type Template struct {
 	Name       string
 	Directives Directives
 	Essentials string
 	HeadersRaw string
 	BodyRaw    string
+	PreScript  Script
+	PostScript Script
 }
 
 // ParseFile splits .http content into request templates without resolving any
@@ -107,13 +122,43 @@ func parseBlock(lines []string, fileVars map[string]string) *Template {
 		}
 	}
 
+	// Script collection: openScript starts an inline `{% ... %}` block (which
+	// may close on the same line); while open, lines accumulate until `%}`.
+	var scriptLines []string
+	var scriptDone func(code string)
+
+	openScript := func(rest string, done func(string)) {
+		if before, _, closed := strings.Cut(rest, "%}"); closed {
+			done(strings.TrimSpace(before))
+			return
+		}
+		scriptLines = scriptLines[:0]
+		if strings.TrimSpace(rest) != "" {
+			scriptLines = append(scriptLines, strings.TrimSpace(rest))
+		}
+		scriptDone = done
+	}
+
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
+
+		if scriptDone != nil {
+			if before, _, closed := strings.Cut(line, "%}"); closed {
+				scriptLines = append(scriptLines, before)
+				scriptDone(strings.TrimSpace(strings.Join(scriptLines, "\n")))
+				scriptDone = nil
+				continue
+			}
+			scriptLines = append(scriptLines, line)
+			continue
+		}
 
 		switch section {
 		case sectionPre:
 			switch {
 			case trimmed == "":
+			case strings.HasPrefix(trimmed, "< {%"):
+				openScript(scriptRest(trimmed), func(code string) { template.PreScript.Code = code })
 			case strings.HasPrefix(trimmed, "@"):
 				key, value := parseVarLine(trimmed)
 				if key != "" {
@@ -136,7 +181,16 @@ func parseBlock(lines []string, fileVars map[string]string) *Template {
 				headers = append(headers, trimmed)
 			}
 		case sectionBody:
-			body = append(body, line)
+			switch {
+			case strings.HasPrefix(trimmed, "> {%"):
+				openScript(scriptRest(trimmed), func(code string) { template.PostScript.Code = code })
+			case strings.HasPrefix(trimmed, ">>"):
+				slog.Warn("response redirect '>>' is not supported, ignoring", "line", trimmed)
+			case strings.HasPrefix(trimmed, "> "):
+				template.PostScript.Path = strings.TrimSpace(trimmed[len("> "):])
+			default:
+				body = append(body, line)
+			}
 		}
 	}
 
@@ -148,6 +202,13 @@ func parseBlock(lines []string, fileVars map[string]string) *Template {
 	template.BodyRaw = strings.TrimSpace(strings.Join(body, "\n"))
 
 	return template
+}
+
+// scriptRest strips the leading `<`/`>` marker and the `{%` opener, returning
+// any code that follows on the same line.
+func scriptRest(trimmed string) string {
+	rest := strings.TrimSpace(trimmed[1:])
+	return strings.TrimPrefix(rest, "{%")
 }
 
 func isComment(trimmed string) bool {

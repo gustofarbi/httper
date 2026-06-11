@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"httper/pkg/env"
 	"httper/pkg/request"
+	"httper/pkg/script"
 	"httper/pkg/vars"
 	"io"
 	"log/slog"
@@ -139,8 +140,8 @@ func run(cfg Config, input string) error {
 		return err
 	}
 
-	store := vars.NewStore(envVars, httpFile.Vars, vars.NewGlobals())
-	resolve := store.Resolve
+	globals := vars.NewGlobals()
+	store := vars.NewStore(envVars, httpFile.Vars, globals)
 
 	if len(httpFile.Templates) == 0 {
 		slog.Warn("no requests found in the input file")
@@ -167,17 +168,26 @@ func run(cfg Config, input string) error {
 		SaveRoot: saveRoot,
 	}
 
-	for i, template := range templates {
-		slog.Debug("sending request", "number", i+1, "total", len(templates))
+	engine := &script.Engine{Globals: globals, Out: os.Stdout}
 
-		httpRequest, err := template.Build(resolve, dir)
+	loadScript := func(path string) (string, error) {
+		// inputRoot is rooted at the .http file's dir, so handler script paths
+		// stay sandboxed there.
+		f, err := inputRoot.Open(path)
 		if err != nil {
-			slog.Error("building request", "err", err, "number", i+1)
-			continue
+			return "", fmt.Errorf("opening handler script %s: %w", path, err)
+		}
+		defer func() { _ = f.Close() }()
+
+		code, err := io.ReadAll(f)
+		if err != nil {
+			return "", fmt.Errorf("reading handler script %s: %w", path, err)
 		}
 
-		runner.Send(template, httpRequest)
+		return string(code), nil
 	}
+
+	executeTemplates(runner, templates, store, engine, dir, loadScript)
 
 	return nil
 }

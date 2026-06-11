@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"httper/internal/echo/handler"
 	"httper/pkg/request"
+	"httper/pkg/script"
 	"httper/pkg/vars"
+	"io"
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"os"
@@ -38,7 +40,8 @@ func runContent(t *testing.T, srv *httptest.Server, content, wd string) string {
 	httpFile, err := request.ParseFile(content)
 	require.NoError(t, err)
 
-	store := vars.NewStore(nil, httpFile.Vars, vars.NewGlobals())
+	globals := vars.NewGlobals()
+	store := vars.NewStore(nil, httpFile.Vars, globals)
 
 	// Same default as main.run: a cookie jar so chained requests share cookies.
 	client := srv.Client()
@@ -52,11 +55,30 @@ func runContent(t *testing.T, srv *httptest.Server, content, wd string) string {
 		Out:    buf,
 		Config: Config{},
 	}
-	for _, tpl := range httpFile.Templates {
-		req, err := tpl.Build(store.Resolve, wd)
-		require.NoError(t, err)
-		runner.Send(tpl, req)
+	engine := &script.Engine{Globals: globals, Out: buf}
+
+	// Mirrors main.run's loader: handler script paths resolve inside wd.
+	var loadScript func(path string) (string, error)
+	if wd != "" {
+		loadScript = func(path string) (string, error) {
+			root, err := os.OpenRoot(wd)
+			if err != nil {
+				return "", err
+			}
+			defer func() { _ = root.Close() }()
+
+			code, err := root.Open(path)
+			if err != nil {
+				return "", err
+			}
+			defer func() { _ = code.Close() }()
+
+			raw, err := io.ReadAll(code)
+			return string(raw), err
+		}
 	}
+
+	executeTemplates(runner, httpFile.Templates, store, engine, wd, loadScript)
 	return buf.String()
 }
 
@@ -162,6 +184,38 @@ func TestE2EFixtures(t *testing.T) {
 		out := runContent(t, srv, "# @no-log\nGET "+fixtureHost+"/redirect", "")
 		assert.Contains(t, out, "Status 200")
 		assert.NotContains(t, out, "Redirected OK")
+	})
+
+	t.Run("response handler chains token to next request", func(t *testing.T) {
+		content := "POST " + fixtureHost + "/token\n\n" +
+			"> {%\n" +
+			"    client.test(\"token issued\", function() {\n" +
+			"        client.assert(response.status === 200, \"expected 200\");\n" +
+			"    });\n" +
+			"    client.global.set(\"token\", response.body.token);\n" +
+			"%}\n" +
+			"###\n" +
+			"GET " + fixtureHost + "/bearer\n" +
+			"Authorization: Bearer {{token}}"
+
+		out := runContent(t, srv, content, "")
+		assert.Contains(t, out, "Authorized")
+	})
+
+	t.Run("pre-request script sets request variables", func(t *testing.T) {
+		content := "< {% request.variables.set(\"p\", \"param1=foobar\") %}\n" +
+			"GET " + fixtureHost + "/?query&{{p}}"
+
+		out := runContent(t, srv, content, "")
+		assert.Contains(t, out, "param1")
+	})
+
+	t.Run("handler script loaded from file", func(t *testing.T) {
+		content := "GET " + fixtureHost + "/redirect\n\n" +
+			"> check.js"
+
+		out := runContent(t, srv, content, "testdata")
+		assert.Contains(t, out, "file handler ran")
 	})
 
 	t.Run("http2 prior knowledge", func(t *testing.T) {

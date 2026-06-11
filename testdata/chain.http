@@ -1,0 +1,12 @@
+POST https://localhost:8080/token
+
+> {%
+    client.test("token issued", function () {
+        client.assert(response.status === 200, "expected 200");
+    });
+    client.global.set("token", response.body.token);
+%}
+
+###
+GET https://localhost:8080/bearer
+Authorization: Bearer {{token}}

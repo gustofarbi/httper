@@ -25,12 +25,20 @@ func NewMux() *http.ServeMux {
 	mux.HandleFunc("GET /basic-auth", BasicAuth)
 	mux.HandleFunc("POST /json", JsonBody)
 	mux.HandleFunc("POST /form-data", FormData)
+	mux.HandleFunc("POST /token", Token)
 	mux.HandleFunc("GET /redirect", Redirect)
 	mux.HandleFunc("GET /redirected", Redirected)
 	mux.HandleFunc("GET /set-cookie", SetCookie)
 	mux.HandleFunc("GET /need-cookie", NeedCookie)
 
 	return mux
+}
+
+// Token issues the bearer token the Bearer handler accepts, so chaining
+// fixtures can log in and reuse it.
+func Token(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = fmt.Fprintln(w, `{"token":"42069"}`)
 }
 
 func Redirect(w http.ResponseWriter, r *http.Request) {

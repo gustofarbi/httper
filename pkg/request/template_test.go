@@ -138,6 +138,73 @@ func TestParseFile(t *testing.T) {
 		assert.Equal(t, "body # stays intact\n// also body", tpl.BodyRaw)
 	})
 
+	t.Run("pre-request script extracted", func(t *testing.T) {
+		file, err := ParseFile(
+			"< {%\n" +
+				"    request.variables.set(\"id\", \"42\")\n" +
+				"%}\n" +
+				"GET https://localhost:8080/a",
+		)
+		require.NoError(t, err)
+		require.Len(t, file.Templates, 1)
+
+		tpl := file.Templates[0]
+		assert.Contains(t, tpl.PreScript.Code, `request.variables.set("id", "42")`)
+		assert.Equal(t, "GET https://localhost:8080/a", tpl.Essentials)
+	})
+
+	t.Run("response handler script extracted after body", func(t *testing.T) {
+		file, err := ParseFile(
+			"POST https://localhost:8080/json\n" +
+				"Content-Type: application/json\n\n" +
+				`{"a":1}` + "\n\n" +
+				"> {%\n" +
+				"    client.test(\"ok\", function() {})\n" +
+				"%}",
+		)
+		require.NoError(t, err)
+		require.Len(t, file.Templates, 1)
+
+		tpl := file.Templates[0]
+		assert.Equal(t, `{"a":1}`, tpl.BodyRaw)
+		assert.Contains(t, tpl.PostScript.Code, `client.test("ok", function() {})`)
+	})
+
+	t.Run("response handler script without body", func(t *testing.T) {
+		file, err := ParseFile(
+			"GET https://localhost:8080/a\n\n" +
+				"> {% client.test(\"inline\", function() {}) %}",
+		)
+		require.NoError(t, err)
+		require.Len(t, file.Templates, 1)
+
+		tpl := file.Templates[0]
+		assert.Empty(t, tpl.BodyRaw)
+		assert.Contains(t, tpl.PostScript.Code, `client.test("inline", function() {})`)
+	})
+
+	t.Run("response handler script file reference", func(t *testing.T) {
+		file, err := ParseFile(
+			"GET https://localhost:8080/a\n\n" +
+				"> check.js",
+		)
+		require.NoError(t, err)
+		require.Len(t, file.Templates, 1)
+		assert.Equal(t, "check.js", file.Templates[0].PostScript.Path)
+	})
+
+	t.Run("response redirect >> is ignored", func(t *testing.T) {
+		file, err := ParseFile(
+			"GET https://localhost:8080/a\n\n" +
+				">> out.json",
+		)
+		require.NoError(t, err)
+		require.Len(t, file.Templates, 1)
+		assert.Empty(t, file.Templates[0].PostScript.Code)
+		assert.Empty(t, file.Templates[0].PostScript.Path)
+		assert.Empty(t, file.Templates[0].BodyRaw)
+	})
+
 	t.Run("empty content yields no templates", func(t *testing.T) {
 		file, err := ParseFile("   \n  \n")
 		require.NoError(t, err)
