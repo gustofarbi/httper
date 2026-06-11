@@ -26,12 +26,24 @@ func NewMux() *http.ServeMux {
 	mux.HandleFunc("POST /json", JsonBody)
 	mux.HandleFunc("POST /form-data", FormData)
 	mux.HandleFunc("POST /token", Token)
+	mux.HandleFunc("POST /urlencoded", URLEncoded)
 	mux.HandleFunc("GET /redirect", Redirect)
 	mux.HandleFunc("GET /redirected", Redirected)
 	mux.HandleFunc("GET /set-cookie", SetCookie)
 	mux.HandleFunc("GET /need-cookie", NeedCookie)
 
 	return mux
+}
+
+func URLEncoded(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	for key, values := range r.PostForm {
+		_, _ = fmt.Fprintf(w, "%s=%s\n", key, values)
+	}
 }
 
 // Token issues the bearer token the Bearer handler accepts, so chaining

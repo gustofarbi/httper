@@ -226,6 +226,18 @@ func TestE2EFixtures(t *testing.T) {
 		assert.Contains(t, out, "file handler ran")
 	})
 
+	t.Run("form-urlencoded body", func(t *testing.T) {
+		content := "POST " + fixtureHost + "/urlencoded\n" +
+			"Content-Type: application/x-www-form-urlencoded\n\n" +
+			"a=1&\n" +
+			"b=two"
+
+		out := runContent(t, srv, content, "")
+		assert.Contains(t, out, "200 OK")
+		assert.Contains(t, out, "a=[1]")
+		assert.Contains(t, out, "b=[two]")
+	})
+
 	t.Run("http2 prior knowledge", func(t *testing.T) {
 		// Real h2c prior-knowledge can't run against httptest's TLS server, and
 		// Runner.Send injects a bare http2.Transport with no TLS config for the

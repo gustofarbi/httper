@@ -167,6 +167,8 @@ func parseBody(contentType, body, wd string) (io.Reader, error) {
 		return getJSONBody(body), nil
 	case "multipart/form-data":
 		return getFormDataBody(boundary, body, wd)
+	case "application/x-www-form-urlencoded":
+		return getURLEncodedBody(body), nil
 	default:
 		slog.Warn("unknown content-type", "content-type", contentType)
 		return nil, nil
@@ -175,6 +177,17 @@ func parseBody(contentType, body, wd string) (io.Reader, error) {
 
 func getJSONBody(body string) io.Reader {
 	return strings.NewReader(body)
+}
+
+// getURLEncodedBody joins the body lines into one form-encoded string; the
+// .http format allows splitting pairs across lines.
+func getURLEncodedBody(body string) io.Reader {
+	lines := strings.Split(body, "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimSpace(line)
+	}
+
+	return strings.NewReader(strings.Join(lines, ""))
 }
 
 func parseHeaders(headersRaw string) textproto.MIMEHeader {

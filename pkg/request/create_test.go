@@ -161,6 +161,20 @@ func TestCreate(t *testing.T) {
 			},
 		},
 		{
+			name: "form-urlencoded body joins lines with ampersand",
+			content: "POST https://localhost:8080/urlencoded\n" +
+				"Content-Type: application/x-www-form-urlencoded\n\n" +
+				"a=1&\n" +
+				"b=2&\n" +
+				"c=hello+world",
+			check: func(t *testing.T, reqs []*http.Request) {
+				require.Len(t, reqs, 1)
+				body, err := io.ReadAll(reqs[0].Body)
+				require.NoError(t, err)
+				assert.Equal(t, "a=1&b=2&c=hello+world", string(body))
+			},
+		},
+		{
 			name:    "empty content yields no requests",
 			content: "   \n  \n",
 			check: func(t *testing.T, reqs []*http.Request) {
