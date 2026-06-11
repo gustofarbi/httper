@@ -126,8 +126,13 @@ Available API:
 | Object | Available in | Members |
 |--------|--------------|---------|
 | `client` | both | `test(name, fn)` (response handlers only), `assert(cond, message)`, `log(...args)`, `global.set(name, value)`, `global.get(name)` |
-| `request.variables` | pre-request | `set(name, value)`, `get(name)` |
+| `crypto` | both | `sha256(s)`, `sha1(s)`, `md5(s)`, `hmac.sha256(key, data)` / `.sha1` / `.md5` — hex strings |
+| `request` | pre-request | `variables.set/get`, `method()`, `url()` / `body()` (each with `getRaw()` and `tryGetSubstituted()`), `headers.all()` / `headers.findByName(name)` (header objects with `name()`, `getRawValue()`, `tryGetSubstituted()`), `environment.get(name)` (env-file values) |
 | `response` | response handlers | `status`, `body` (JSON bodies parsed into objects), `headers.valueOf(name)`, `headers.valuesOf(name)`, `contentType.mimeType`, `contentType.charset` |
+
+Pre-request scripts see the request *as written* (placeholders intact) via
+`getRaw()`; `tryGetSubstituted()` resolves with the variables known at call
+time.
 
 `client.test` results feed the run report and exit code; `client.global.set`
 in one request resolves `{{placeholders}}` in later ones (request chaining).

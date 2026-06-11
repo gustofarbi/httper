@@ -81,6 +81,51 @@ func buildRequest(essentialsRaw, headersRaw, bodyRaw, wd string) (*http.Request,
 	return request, nil
 }
 
+// SplitEssentials splits a raw request line into method, URL, and protocol
+// without parsing the URL, so {{placeholders}} stay intact. The method
+// defaults to GET like parseEssentials.
+func SplitEssentials(essentialsRaw string) (method, rawURL, proto string) {
+	for _, part := range strings.Split(essentialsRaw, " ") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+
+		if method == "" && parseMethod(part) != "" {
+			method = part
+			continue
+		}
+		if proto == "" && parseProto(part) != "" {
+			proto = part
+			continue
+		}
+		if rawURL == "" {
+			rawURL = part
+		}
+	}
+
+	if method == "" {
+		method = http.MethodGet
+	}
+
+	return
+}
+
+// HeaderPairs splits raw header lines into name/value pairs, preserving the
+// raw (unresolved) values and the order they appear in.
+func HeaderPairs(headersRaw string) [][2]string {
+	var pairs [][2]string
+	for _, line := range strings.Split(headersRaw, "\n") {
+		key, value, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		pairs = append(pairs, [2]string{strings.TrimSpace(key), strings.TrimSpace(value)})
+	}
+
+	return pairs
+}
+
 func parseEssentials(essentialsRaw string) (
 	method string,
 	parsedUrl *url.URL,
