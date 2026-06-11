@@ -21,6 +21,8 @@ httper [flags] <file.http>
 | `-insecure` | Skip TLS certificate verification (self-signed certs) |
 | `-timeout <seconds>` | Request timeout, default 30 (`# @timeout` wins per request) |
 | `-var key=value` | Set a variable (repeatable; overrides `@vars` and env file) |
+| `-report-junit <path>` | Write a JUnit XML report (CI test integration) |
+| `-report-json <path>` | Write a JSON report |
 | `-v` | Verbose output (response headers, PASS lines, debug logs) |
 | `-version` | Print version and exit |
 
@@ -146,7 +148,9 @@ in one request resolves `{{placeholders}}` in later ones (request chaining).
 
 - Cookie jar shared across all requests in one run (login → authenticated
   follow-up works out of the box); opt out per request with `# @no-cookie-jar`
-- Test report summary with CI-friendly exit codes
+- Test report summary with CI-friendly exit codes; `-report-junit` /
+  `-report-json` write machine-readable reports (one testcase per
+  `client.test`, send errors as `<error>` entries)
 - `-save` writes each response body to
   `.idea/httpRequests/<timestamp>.<status>.<ext>` under the working directory,
   with the extension sniffed from the body content
