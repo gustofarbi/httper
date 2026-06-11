@@ -9,6 +9,7 @@ import (
 	"httper/pkg/script"
 	"httper/pkg/vars"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/http/cookiejar"
@@ -261,6 +262,7 @@ func loadEnv(envFile, environment string) env.Environment {
 		slog.Error("opening root", "err", err)
 		return nil
 	}
+	defer func() { _ = root.Close() }()
 
 	// root is rooted at the env file's dir; Parse opens by base name relative to it.
 	envs, err := env.Parse(root, filepath.Base(envFile))
@@ -269,7 +271,39 @@ func loadEnv(envFile, environment string) env.Environment {
 		return nil
 	}
 
+	// JetBrains convention: a private sibling file overlays the public one,
+	// key-wise per environment. Missing private file is the normal case.
+	if privateName := privateEnvName(filepath.Base(envFile)); privateName != "" {
+		private, err := env.Parse(root, privateName)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+		case err != nil:
+			slog.Error("parsing private env file", "err", err)
+		default:
+			envs = env.Merge(envs, private)
+		}
+	}
+
 	return envs[environment]
+}
+
+// privateEnvName derives the private sibling of an env file name:
+// `*env.json` gains a `private.` segment (http-client.env.json →
+// http-client.private.env.json), other .json files get `.private` before the
+// extension. Returns "" when the name is already private or not derivable.
+func privateEnvName(base string) string {
+	if strings.Contains(base, "private") {
+		return ""
+	}
+
+	if rest, ok := strings.CutSuffix(base, "env.json"); ok {
+		return rest + "private.env.json"
+	}
+	if rest, ok := strings.CutSuffix(base, ".json"); ok {
+		return rest + ".private.json"
+	}
+
+	return ""
 }
 
 func initLogger(verbose bool) {
