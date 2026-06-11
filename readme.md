@@ -1,5 +1,8 @@
 # httper
 
+[![CI](https://github.com/gustofarbi/httper/actions/workflows/ci.yml/badge.svg)](https://github.com/gustofarbi/httper/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/gustofarbi/httper/branch/master/graph/badge.svg)](https://codecov.io/gh/gustofarbi/httper)
+
 This is a cli runner for .http files.
 
 ## Usage
@@ -10,8 +13,14 @@ httper <file.http>
 
 ## Installation
 
+Prebuilt binaries for linux/macos/windows (amd64, arm64) are on the
+[releases page](https://github.com/gustofarbi/httper/releases).
+
+Or build from source:
+
 ```bash
-go install github.com/matej-karolcik/httper@latest
+go build
+./httper -version
 ```
 
 ## Supported features
