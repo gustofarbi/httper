@@ -57,3 +57,25 @@ func TestParseEssentials(t *testing.T) {
 	assert.NotNil(t, parsedUrl)
 	assert.Equal(t, "HTTP/2", proto)
 }
+
+func TestSplitEssentials(t *testing.T) {
+	method, rawURL, proto := SplitEssentials("POST https://{{host}}/api?x={{y}} HTTP/2")
+	assert.Equal(t, "POST", method)
+	assert.Equal(t, "https://{{host}}/api?x={{y}}", rawURL)
+	assert.Equal(t, "HTTP/2", proto)
+
+	method, rawURL, proto = SplitEssentials("https://example.com/")
+	assert.Equal(t, http.MethodGet, method)
+	assert.Equal(t, "https://example.com/", rawURL)
+	assert.Equal(t, "", proto)
+}
+
+func TestHeaderPairs(t *testing.T) {
+	pairs := HeaderPairs("Content-Type: application/json\nX-Token: {{token}}")
+	assert.Equal(t, [][2]string{
+		{"Content-Type", "application/json"},
+		{"X-Token", "{{token}}"},
+	}, pairs)
+
+	assert.Empty(t, HeaderPairs("  \n"))
+}

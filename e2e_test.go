@@ -86,7 +86,7 @@ func runResults(t *testing.T, srv *httptest.Server, content, wd string) ([]*Resu
 		}
 	}
 
-	results := executeTemplates(runner, httpFile.Templates, store, engine, wd, loadScript)
+	results := executeTemplates(runner, httpFile.Templates, store, engine, wd, nil, loadScript)
 	return results, buf.String()
 }
 
@@ -216,6 +216,19 @@ func TestE2EFixtures(t *testing.T) {
 
 		out := runContent(t, srv, content, "")
 		assert.Contains(t, out, "param1")
+	})
+
+	t.Run("pre-request script reads request and computes a signature", func(t *testing.T) {
+		content := "< {%\n" +
+			"    request.variables.set(\"sig\", crypto.sha256(request.method() + request.url().getRaw()));\n" +
+			"%}\n" +
+			"POST " + fixtureHost + "/raw\n" +
+			"Content-Type: text/plain\n\n" +
+			"sig={{sig}}"
+
+		out := runContent(t, srv, content, "")
+		assert.Contains(t, out, "200 OK")
+		assert.Regexp(t, `sig=[0-9a-f]{64}`, out)
 	})
 
 	t.Run("handler script loaded from file", func(t *testing.T) {

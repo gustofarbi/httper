@@ -9,14 +9,15 @@ import (
 
 // executeTemplates runs each template through the full per-request pipeline:
 // pre-request script → placeholder resolution → build → send → response
-// handler script. loadScript reads `> file.js` handler sources; it may be nil
-// when file scripts cannot occur.
+// handler script. envVars backs request.environment in pre-request scripts;
+// loadScript reads `> file.js` handler sources; both may be nil.
 func executeTemplates(
 	runner *Runner,
 	templates []*request.Template,
 	store *vars.Store,
 	engine *script.Engine,
 	wd string,
+	envVars map[string]string,
 	loadScript func(path string) (string, error),
 ) []*Result {
 	results := make([]*Result, 0, len(templates))
@@ -27,7 +28,7 @@ func executeTemplates(
 		store.ClearLocal()
 
 		if template.PreScript.Code != "" {
-			if err := engine.RunPre(template.PreScript.Code, store.SetLocal); err != nil {
+			if err := engine.RunPre(template.PreScript.Code, preRequestFor(template, store, envVars), store.SetLocal); err != nil {
 				slog.Error("pre-request script", "err", err, "request", template.Name)
 				results = append(results, &Result{Name: template.Name, Err: err})
 				continue
@@ -71,6 +72,22 @@ func executeTemplates(
 	}
 
 	return results
+}
+
+// preRequestFor builds the raw request view a pre-request script sees:
+// unresolved essentials/headers/body plus the env-file values, with
+// store.Resolve backing the tryGetSubstituted accessors.
+func preRequestFor(template *request.Template, store *vars.Store, envVars map[string]string) *script.PreRequest {
+	method, rawURL, _ := request.SplitEssentials(template.Essentials)
+
+	return &script.PreRequest{
+		Method:      method,
+		URL:         rawURL,
+		Body:        template.BodyRaw,
+		Headers:     request.HeaderPairs(template.HeadersRaw),
+		Environment: envVars,
+		Resolve:     store.Resolve,
+	}
 }
 
 func handlerSource(s request.Script, loadScript func(path string) (string, error)) (string, error) {

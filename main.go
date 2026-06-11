@@ -218,7 +218,7 @@ func run(cfg Config, input string) (Report, error) {
 		return string(code), nil
 	}
 
-	results := executeTemplates(runner, templates, store, engine, dir, loadScript)
+	results := executeTemplates(runner, templates, store, engine, dir, envVars, loadScript)
 
 	report := buildReport(results, *strict)
 	printReport(os.Stdout, results, report, cfg.Verbose)
