@@ -332,3 +332,46 @@ func TestE2ESavesResponse(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, entries, "expected a saved response file")
 }
+
+func TestE2EInsecureTLS(t *testing.T) {
+	srv := newTestServer(t)
+
+	send := func(t *testing.T, insecure bool, line string) *Result {
+		t.Helper()
+		content := strings.ReplaceAll(line, fixtureHost, srv.URL)
+		httpFile, err := request.ParseFile(content)
+		require.NoError(t, err)
+		require.Len(t, httpFile.Templates, 1)
+
+		req, err := httpFile.Templates[0].Build(func(s string) string { return s }, "")
+		require.NoError(t, err)
+
+		runner := &Runner{
+			// Deliberately NOT srv.Client(): a plain client must reject the
+			// test server's self-signed cert unless -insecure is set.
+			Client: newHTTPClient(nil, insecure),
+			Out:    new(bytes.Buffer),
+			Config: Config{Insecure: insecure},
+		}
+		return runner.Send(httpFile.Templates[0], req)
+	}
+
+	t.Run("self-signed cert rejected by default", func(t *testing.T) {
+		result := send(t, false, "GET "+fixtureHost+"/redirected")
+		require.Error(t, result.Err)
+		assert.Contains(t, result.Err.Error(), "certificate")
+	})
+
+	t.Run("insecure skips verification", func(t *testing.T) {
+		result := send(t, true, "GET "+fixtureHost+"/redirected")
+		require.NoError(t, result.Err)
+		assert.Equal(t, 200, result.StatusCode)
+	})
+
+	t.Run("http2 prior knowledge works under insecure", func(t *testing.T) {
+		result := send(t, true, "GET "+fixtureHost+"/http2 HTTP/2")
+		require.NoError(t, result.Err)
+		assert.Equal(t, 200, result.StatusCode)
+		assert.Contains(t, string(result.Body), "Protocol: HTTP/2.0")
+	})
+}
