@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const formContent = `POST https://localhost:8080/form-data
@@ -24,11 +25,16 @@ test text
 foobar
 --foo--`
 
-func TestSplitRequest(t *testing.T) {
-	essentials, headers, body := splitRequest(formContent)
+// The multipart body must survive parsing untouched, internal blank lines
+// included.
+func TestParseFilePreservesMultipartBody(t *testing.T) {
+	file, err := ParseFile(formContent)
+	require.NoError(t, err)
+	require.Len(t, file.Templates, 1)
 
-	assert.Equal(t, "POST https://localhost:8080/form-data", essentials)
-	assert.Equal(t, "Content-Type: multipart/form-data; boundary=foo", headers)
+	tpl := file.Templates[0]
+	assert.Equal(t, "POST https://localhost:8080/form-data", tpl.Essentials)
+	assert.Equal(t, "Content-Type: multipart/form-data; boundary=foo", tpl.HeadersRaw)
 	assert.Equal(t, `--foo
 Content-Disposition: form-data; name="image"; filename="Cargo.lock"
 Content-Type: application/octet-stream
@@ -41,7 +47,7 @@ Content-Type: text/plain
 test text
 
 foobar
---foo--`, body)
+--foo--`, tpl.BodyRaw)
 }
 
 func TestParseEssentials(t *testing.T) {

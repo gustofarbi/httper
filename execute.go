@@ -1,0 +1,85 @@
+package main
+
+import (
+	"httper/pkg/request"
+	"httper/pkg/script"
+	"httper/pkg/vars"
+	"log/slog"
+)
+
+// executeTemplates runs each template through the full per-request pipeline:
+// pre-request script → placeholder resolution → build → send → response
+// handler script. loadScript reads `> file.js` handler sources; it may be nil
+// when file scripts cannot occur.
+func executeTemplates(
+	runner *Runner,
+	templates []*request.Template,
+	store *vars.Store,
+	engine *script.Engine,
+	wd string,
+	loadScript func(path string) (string, error),
+) []*Result {
+	results := make([]*Result, 0, len(templates))
+
+	for i, template := range templates {
+		slog.Debug("sending request", "number", i+1, "total", len(templates))
+
+		store.ClearLocal()
+
+		if template.PreScript.Code != "" {
+			if err := engine.RunPre(template.PreScript.Code, store.SetLocal); err != nil {
+				slog.Error("pre-request script", "err", err, "request", template.Name)
+				results = append(results, &Result{Name: template.Name, Err: err})
+				continue
+			}
+		}
+
+		httpRequest, err := template.Build(store.Resolve, wd)
+		if err != nil {
+			slog.Error("building request", "err", err, "request", template.Name)
+			results = append(results, &Result{Name: template.Name, Err: err})
+			continue
+		}
+
+		result := runner.Send(template, httpRequest)
+		results = append(results, result)
+		if result.Err != nil {
+			continue
+		}
+
+		code, err := handlerSource(template.PostScript, loadScript)
+		if err != nil {
+			slog.Error("loading response handler", "err", err, "request", template.Name)
+			result.Err = err
+			continue
+		}
+		if code == "" {
+			continue
+		}
+
+		tests, err := engine.RunPost(code, &script.Response{
+			Status:      result.StatusCode,
+			Headers:     result.Header,
+			ContentType: result.Header.Get("Content-Type"),
+			Body:        result.Body,
+		})
+		result.Tests = tests
+		if err != nil {
+			slog.Error("response handler script", "err", err, "request", template.Name)
+			result.Err = err
+		}
+	}
+
+	return results
+}
+
+func handlerSource(s request.Script, loadScript func(path string) (string, error)) (string, error) {
+	if s.Code != "" || s.Path == "" {
+		return s.Code, nil
+	}
+	if loadScript == nil {
+		return "", nil
+	}
+
+	return loadScript(s.Path)
+}

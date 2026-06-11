@@ -7,14 +7,11 @@ import (
 	"net/http"
 	"net/textproto"
 	"net/url"
-	"regexp"
 	"slices"
 	"strings"
 )
 
 var (
-	splitRequestsRegex = regexp.MustCompile(`(?m)^###`)
-
 	methods = []string{
 		http.MethodGet,
 		http.MethodHead,
@@ -36,48 +33,7 @@ var (
 	}
 )
 
-func Create(content, wd string) ([]*http.Request, error) {
-	requests := make([]*http.Request, 0)
-
-	for _, part := range splitRequests(content) {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-
-		request, err := parse(part, wd)
-		if err != nil {
-			return nil, fmt.Errorf("parsing request: %w", err)
-		}
-
-		requests = append(requests, request)
-	}
-
-	return requests, nil
-}
-
-func splitRequests(content string) []string {
-	return splitRequestsRegex.Split(content, -1)
-}
-
-func splitRequest(content string) (essentials, headers, body string) {
-	var head string
-	head, body, _ = strings.Cut(content, "\n\n")
-
-	head = strings.ReplaceAll(head, "\n    ", "")
-
-	essentials, headers, _ = strings.Cut(head, "\n")
-
-	essentials = strings.TrimSpace(essentials)
-	headers = strings.TrimSpace(headers)
-	body = strings.TrimSpace(body)
-
-	return
-}
-
-func parse(content, wd string) (*http.Request, error) {
-	essentialsRaw, headersRaw, bodyRaw := splitRequest(content)
-
+func buildRequest(essentialsRaw, headersRaw, bodyRaw, wd string) (*http.Request, error) {
 	headers := parseHeaders(headersRaw)
 	body, err := parseBody(
 		headers.Get("Content-Type"),
@@ -211,6 +167,8 @@ func parseBody(contentType, body, wd string) (io.Reader, error) {
 		return getJSONBody(body), nil
 	case "multipart/form-data":
 		return getFormDataBody(boundary, body, wd)
+	case "application/x-www-form-urlencoded":
+		return getURLEncodedBody(body), nil
 	default:
 		slog.Warn("unknown content-type", "content-type", contentType)
 		return nil, nil
@@ -219,6 +177,17 @@ func parseBody(contentType, body, wd string) (io.Reader, error) {
 
 func getJSONBody(body string) io.Reader {
 	return strings.NewReader(body)
+}
+
+// getURLEncodedBody joins the body lines into one form-encoded string; the
+// .http format allows splitting pairs across lines.
+func getURLEncodedBody(body string) io.Reader {
+	lines := strings.Split(body, "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimSpace(line)
+	}
+
+	return strings.NewReader(strings.Join(lines, ""))
 }
 
 func parseHeaders(headersRaw string) textproto.MIMEHeader {

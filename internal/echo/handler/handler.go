@@ -25,8 +25,55 @@ func NewMux() *http.ServeMux {
 	mux.HandleFunc("GET /basic-auth", BasicAuth)
 	mux.HandleFunc("POST /json", JsonBody)
 	mux.HandleFunc("POST /form-data", FormData)
+	mux.HandleFunc("POST /token", Token)
+	mux.HandleFunc("POST /urlencoded", URLEncoded)
+	mux.HandleFunc("GET /redirect", Redirect)
+	mux.HandleFunc("GET /redirected", Redirected)
+	mux.HandleFunc("GET /set-cookie", SetCookie)
+	mux.HandleFunc("GET /need-cookie", NeedCookie)
 
 	return mux
+}
+
+func URLEncoded(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	for key, values := range r.PostForm {
+		_, _ = fmt.Fprintf(w, "%s=%s\n", key, values)
+	}
+}
+
+// Token issues the bearer token the Bearer handler accepts, so chaining
+// fixtures can log in and reuse it.
+func Token(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = fmt.Fprintln(w, `{"token":"42069"}`)
+}
+
+func Redirect(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, "/redirected", http.StatusFound)
+}
+
+func Redirected(w http.ResponseWriter, _ *http.Request) {
+	_, _ = fmt.Fprintln(w, "Redirected OK")
+}
+
+func SetCookie(w http.ResponseWriter, _ *http.Request) {
+	http.SetCookie(w, &http.Cookie{Name: "session", Value: "42"})
+	_, _ = fmt.Fprintln(w, "Cookie set")
+}
+
+func NeedCookie(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie("session")
+	if err != nil || cookie.Value != "42" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	_, _ = fmt.Fprintln(w, "Cookie OK")
 }
 
 func Image(w http.ResponseWriter, _ *http.Request) {

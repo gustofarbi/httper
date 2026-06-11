@@ -10,22 +10,32 @@ import (
 	"time"
 )
 
+// Options control what Response does with the already-read body.
+type Options struct {
+	Save    bool
+	Verbose bool
+	// Quiet suppresses everything but the one-line status (`# @no-log`);
+	// saving still happens when Save is set.
+	Quiet bool
+}
+
 func Response(
 	w io.Writer,
 	response *http.Response,
+	body []byte,
 	duration time.Duration,
-	save, verbose bool,
+	opts Options,
 	root *os.Root,
 ) error {
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		return fmt.Errorf("reading response body: %w", err)
-	}
-
-	if save {
+	if opts.Save {
 		if err := saveResponse(root, response, body); err != nil {
 			return fmt.Errorf("saving response: %w", err)
 		}
+	}
+
+	if opts.Quiet {
+		_, _ = fmt.Fprintf(w, "Status %d %s\n", response.StatusCode, http.StatusText(response.StatusCode))
+		return nil
 	}
 
 	tw := tabwriter.NewWriter(w, 20, 20, 1, ' ', tabwriter.Debug)
@@ -36,7 +46,7 @@ func Response(
 	_, _ = fmt.Fprintf(tw, "Content-Length\t%d\n", response.ContentLength)
 
 	// Print headers when verbose is enabled
-	if verbose {
+	if opts.Verbose {
 		_, _ = fmt.Fprintln(tw, "Headers\t")
 		for key, values := range response.Header {
 			for _, value := range values {

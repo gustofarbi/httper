@@ -6,11 +6,15 @@ import (
 	"fmt"
 	"httper/pkg/env"
 	"httper/pkg/request"
+	"httper/pkg/script"
+	"httper/pkg/vars"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/cookiejar"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -44,6 +48,16 @@ var (
 		false,
 		"verbose output",
 	)
+	names = flag.String(
+		"name",
+		"",
+		"run only requests with these names (comma-separated)",
+	)
+	strict = flag.Bool(
+		"strict",
+		false,
+		"treat non-2xx responses as failures",
+	)
 )
 
 // Config holds the runtime options derived from CLI flags.
@@ -72,9 +86,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := run(cfg, flag.Arg(0)); err != nil {
+	report, err := run(cfg, flag.Arg(0))
+	if err != nil {
 		slog.Error("running http", "err", err)
 		os.Exit(1)
+	}
+
+	// Exit 2 distinguishes "requests ran but tests/sends failed" from usage
+	// and I/O errors (exit 1).
+	if report.Failed() {
+		os.Exit(2)
 	}
 }
 
@@ -99,59 +120,74 @@ func validateInput() error {
 	return nil
 }
 
-func run(cfg Config, input string) error {
+func run(cfg Config, input string) (Report, error) {
 	dir := filepath.Dir(input)
 
 	inputRoot, err := os.OpenRoot(dir)
 	if err != nil {
-		return fmt.Errorf("cannot open root: %w", err)
+		return Report{}, fmt.Errorf("cannot open root: %w", err)
 	}
 	defer func() { _ = inputRoot.Close() }()
 
 	// inputRoot is rooted at dir, so open the file by its base name relative to it.
 	file, err := inputRoot.OpenFile(filepath.Base(input), os.O_RDONLY, 0)
 	if err != nil {
-		return fmt.Errorf("cannot open file at %s: %w", input, err)
+		return Report{}, fmt.Errorf("cannot open file at %s: %w", input, err)
 	}
 	defer func() { _ = file.Close() }()
 
 	contentRaw, err := io.ReadAll(file)
 	if err != nil {
-		return fmt.Errorf("cannot read file at %s: %w", input, err)
+		return Report{}, fmt.Errorf("cannot read file at %s: %w", input, err)
 	}
 
-	content := string(contentRaw)
+	// Cookie jar on by default so chained requests share cookies (login →
+	// authenticated follow-up); `# @no-cookie-jar` opts a request out.
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return Report{}, fmt.Errorf("creating cookie jar: %w", err)
+	}
+
 	client := &http.Client{
 		Timeout: 30 * time.Second,
+		Jar:     jar,
 	}
 
+	envVars := make(map[string]string)
 	if *environment != "" {
-		envMap := loadEnv(*envFile, *environment)
-		if envMap != nil {
-			content = envMap.Replace(content)
+		for key, value := range loadEnv(*envFile, *environment) {
+			envVars[key] = fmt.Sprint(value)
 		}
 	}
 
-	httpRequests, err := request.Create(content, dir)
+	httpFile, err := request.ParseFile(string(contentRaw))
 	if err != nil {
-		return fmt.Errorf("cannot create basic httpRequest: %w", err)
+		return Report{}, fmt.Errorf("cannot parse input file: %w", err)
 	}
 
-	if len(httpRequests) == 0 {
+	templates, err := filterTemplates(httpFile.Templates, *names)
+	if err != nil {
+		return Report{}, err
+	}
+
+	globals := vars.NewGlobals()
+	store := vars.NewStore(envVars, httpFile.Vars, globals)
+
+	if len(httpFile.Templates) == 0 {
 		slog.Warn("no requests found in the input file")
-		return nil
+		return Report{}, nil
 	}
 
 	// Responses are saved under the current working directory; open the root
 	// once and reuse it across every request instead of per-request.
 	wd, err := os.Getwd()
 	if err != nil {
-		return fmt.Errorf("cannot get working directory: %w", err)
+		return Report{}, fmt.Errorf("cannot get working directory: %w", err)
 	}
 
 	saveRoot, err := os.OpenRoot(wd)
 	if err != nil {
-		return fmt.Errorf("cannot open save root: %w", err)
+		return Report{}, fmt.Errorf("cannot open save root: %w", err)
 	}
 	defer func() { _ = saveRoot.Close() }()
 
@@ -162,12 +198,57 @@ func run(cfg Config, input string) error {
 		SaveRoot: saveRoot,
 	}
 
-	for i, httpRequest := range httpRequests {
-		slog.Debug("sending request", "number", i+1, "total", len(httpRequests))
-		runner.Send(httpRequest)
+	engine := &script.Engine{Globals: globals, Out: os.Stdout}
+
+	loadScript := func(path string) (string, error) {
+		// inputRoot is rooted at the .http file's dir, so handler script paths
+		// stay sandboxed there.
+		f, err := inputRoot.Open(path)
+		if err != nil {
+			return "", fmt.Errorf("opening handler script %s: %w", path, err)
+		}
+		defer func() { _ = f.Close() }()
+
+		code, err := io.ReadAll(f)
+		if err != nil {
+			return "", fmt.Errorf("reading handler script %s: %w", path, err)
+		}
+
+		return string(code), nil
 	}
 
-	return nil
+	results := executeTemplates(runner, templates, store, engine, dir, loadScript)
+
+	report := buildReport(results, *strict)
+	printReport(os.Stdout, results, report, cfg.Verbose)
+
+	return report, nil
+}
+
+// filterTemplates keeps only templates whose name is in the comma-separated
+// filter, preserving file order. An empty filter keeps everything.
+func filterTemplates(templates []*request.Template, filter string) ([]*request.Template, error) {
+	if filter == "" {
+		return templates, nil
+	}
+
+	wanted := make(map[string]bool)
+	for _, name := range strings.Split(filter, ",") {
+		wanted[strings.TrimSpace(name)] = true
+	}
+
+	kept := make([]*request.Template, 0, len(wanted))
+	for _, template := range templates {
+		if wanted[template.Name] {
+			kept = append(kept, template)
+		}
+	}
+
+	if len(kept) == 0 {
+		return nil, fmt.Errorf("no requests match -name %q", filter)
+	}
+
+	return kept, nil
 }
 
 func loadEnv(envFile, environment string) env.Environment {
