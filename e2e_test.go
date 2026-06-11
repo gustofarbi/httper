@@ -5,6 +5,7 @@ import (
 	"httper/internal/echo/handler"
 	"httper/pkg/request"
 	"httper/pkg/vars"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"os"
 	"strings"
@@ -39,16 +40,22 @@ func runContent(t *testing.T, srv *httptest.Server, content, wd string) string {
 
 	store := vars.NewStore(nil, httpFile.Vars, vars.NewGlobals())
 
+	// Same default as main.run: a cookie jar so chained requests share cookies.
+	client := srv.Client()
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err)
+	client.Jar = jar
+
 	buf := new(bytes.Buffer)
 	runner := &Runner{
-		Client: srv.Client(),
+		Client: client,
 		Out:    buf,
 		Config: Config{},
 	}
 	for _, tpl := range httpFile.Templates {
 		req, err := tpl.Build(store.Resolve, wd)
 		require.NoError(t, err)
-		runner.Send(req)
+		runner.Send(tpl, req)
 	}
 	return buf.String()
 }
@@ -121,6 +128,42 @@ func TestE2EFixtures(t *testing.T) {
 		assert.Regexp(t, `id=[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}`, out)
 	})
 
+	t.Run("redirect followed by default", func(t *testing.T) {
+		out := runContent(t, srv, "GET "+fixtureHost+"/redirect", "")
+		assert.Contains(t, out, "200 OK")
+		assert.Contains(t, out, "Redirected OK")
+	})
+
+	t.Run("no-redirect directive stops at 302", func(t *testing.T) {
+		out := runContent(t, srv, "# @no-redirect\nGET "+fixtureHost+"/redirect", "")
+		assert.Contains(t, out, "302")
+		assert.NotContains(t, out, "Redirected OK")
+	})
+
+	t.Run("cookie jar carries cookies across requests", func(t *testing.T) {
+		content := "GET " + fixtureHost + "/set-cookie\n" +
+			"###\n" +
+			"GET " + fixtureHost + "/need-cookie"
+		out := runContent(t, srv, content, "")
+		assert.Contains(t, out, "Cookie OK")
+	})
+
+	t.Run("no-cookie-jar directive drops cookies", func(t *testing.T) {
+		content := "GET " + fixtureHost + "/set-cookie\n" +
+			"###\n" +
+			"# @no-cookie-jar\n" +
+			"GET " + fixtureHost + "/need-cookie"
+		out := runContent(t, srv, content, "")
+		assert.Contains(t, out, "401")
+		assert.NotContains(t, out, "Cookie OK")
+	})
+
+	t.Run("no-log directive prints status only", func(t *testing.T) {
+		out := runContent(t, srv, "# @no-log\nGET "+fixtureHost+"/redirect", "")
+		assert.Contains(t, out, "Status 200")
+		assert.NotContains(t, out, "Redirected OK")
+	})
+
 	t.Run("http2 prior knowledge", func(t *testing.T) {
 		// Real h2c prior-knowledge can't run against httptest's TLS server, and
 		// Runner.Send injects a bare http2.Transport with no TLS config for the
@@ -152,7 +195,7 @@ func TestE2ESavesResponse(t *testing.T) {
 		Config:   Config{Save: true},
 		SaveRoot: root,
 	}
-	runner.Send(req)
+	runner.Send(httpFile.Templates[0], req)
 
 	entries, err := os.ReadDir(tmp + "/.idea/httpRequests")
 	require.NoError(t, err)

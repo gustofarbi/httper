@@ -2,9 +2,7 @@ package finalize
 
 import (
 	"bytes"
-	"io"
 	"net/http"
-	"strings"
 	"testing"
 	"time"
 
@@ -12,27 +10,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newResponse(status int, header http.Header, body string) *http.Response {
+func newResponse(status int, header http.Header) *http.Response {
 	if header == nil {
 		header = http.Header{}
 	}
 	return &http.Response{
-		StatusCode:    status,
-		Header:        header,
-		Body:          io.NopCloser(strings.NewReader(body)),
-		ContentLength: int64(len(body)),
+		StatusCode: status,
+		Header:     header,
 	}
+}
+
+func run(t *testing.T, resp *http.Response, body string, duration time.Duration, opts Options) string {
+	t.Helper()
+	resp.ContentLength = int64(len(body))
+	buf := new(bytes.Buffer)
+	require.NoError(t, Response(buf, resp, []byte(body), duration, opts, nil))
+	return buf.String()
 }
 
 func TestResponse(t *testing.T) {
 	t.Run("status, duration and content-length", func(t *testing.T) {
-		buf := new(bytes.Buffer)
-		resp := newResponse(http.StatusOK, nil, "hi")
+		out := run(t, newResponse(http.StatusOK, nil), "hi", time.Second, Options{})
 
-		err := Response(buf, resp, time.Second, false, false, nil)
-		require.NoError(t, err)
-
-		out := buf.String()
 		assert.Contains(t, out, "Status")
 		assert.Contains(t, out, "200 OK")
 		assert.Contains(t, out, "Duration")
@@ -45,33 +44,33 @@ func TestResponse(t *testing.T) {
 	t.Run("headers only under verbose", func(t *testing.T) {
 		header := http.Header{"X-Custom": []string{"abc"}}
 
-		quiet := new(bytes.Buffer)
-		require.NoError(t, Response(quiet, newResponse(http.StatusOK, header, ""), 0, false, false, nil))
-		assert.NotContains(t, quiet.String(), "X-Custom")
+		quiet := run(t, newResponse(http.StatusOK, header), "", 0, Options{})
+		assert.NotContains(t, quiet, "X-Custom")
 
-		verbose := new(bytes.Buffer)
-		require.NoError(t, Response(verbose, newResponse(http.StatusOK, header, ""), 0, false, true, nil))
-		assert.Contains(t, verbose.String(), "X-Custom")
-		assert.Contains(t, verbose.String(), "abc")
+		verbose := run(t, newResponse(http.StatusOK, header), "", 0, Options{Verbose: true})
+		assert.Contains(t, verbose, "X-Custom")
+		assert.Contains(t, verbose, "abc")
+	})
+
+	t.Run("quiet prints only the status line", func(t *testing.T) {
+		out := run(t, newResponse(http.StatusTeapot, nil), "body text", time.Second, Options{Quiet: true})
+
+		assert.Contains(t, out, "Status 418")
+		assert.NotContains(t, out, "body text")
+		assert.NotContains(t, out, "Duration")
 	})
 
 	t.Run("json body pretty printed", func(t *testing.T) {
-		buf := new(bytes.Buffer)
 		header := http.Header{"Content-Type": []string{"application/json"}}
-		resp := newResponse(http.StatusOK, header, `{"a":1}`)
-
-		require.NoError(t, Response(buf, resp, 0, false, false, nil))
+		out := run(t, newResponse(http.StatusOK, header), `{"a":1}`, 0, Options{})
 		// MarshalIndent uses two-space indentation.
-		assert.Contains(t, buf.String(), "\"a\": 1")
+		assert.Contains(t, out, "\"a\": 1")
 	})
 
 	t.Run("non-json body printed raw", func(t *testing.T) {
-		buf := new(bytes.Buffer)
 		header := http.Header{"Content-Type": []string{"text/plain"}}
-		resp := newResponse(http.StatusOK, header, "plain text")
-
-		require.NoError(t, Response(buf, resp, 0, false, false, nil))
-		assert.Contains(t, buf.String(), "plain text")
+		out := run(t, newResponse(http.StatusOK, header), "plain text", 0, Options{})
+		assert.Contains(t, out, "plain text")
 	})
 }
 

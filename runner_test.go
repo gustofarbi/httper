@@ -1,0 +1,57 @@
+package main
+
+import (
+	"net/http"
+	"net/http/cookiejar"
+	"testing"
+	"time"
+
+	"httper/pkg/request"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"golang.org/x/net/http2"
+)
+
+func TestClientFor(t *testing.T) {
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err)
+
+	base := &http.Client{
+		Timeout:   30 * time.Second,
+		Jar:       jar,
+		Transport: http.DefaultTransport,
+	}
+
+	t.Run("no directives keeps base behavior", func(t *testing.T) {
+		c := clientFor(base, request.Directives{}, "")
+		assert.Equal(t, base.Timeout, c.Timeout)
+		assert.Equal(t, base.Jar, c.Jar)
+		assert.Equal(t, base.Transport, c.Transport)
+		assert.Nil(t, c.CheckRedirect)
+	})
+
+	t.Run("timeout directive overrides", func(t *testing.T) {
+		c := clientFor(base, request.Directives{Timeout: 5 * time.Second}, "")
+		assert.Equal(t, 5*time.Second, c.Timeout)
+		assert.Equal(t, 30*time.Second, base.Timeout, "base must not be mutated")
+	})
+
+	t.Run("no-redirect stops following", func(t *testing.T) {
+		c := clientFor(base, request.Directives{NoRedirect: true}, "")
+		require.NotNil(t, c.CheckRedirect)
+		assert.Equal(t, http.ErrUseLastResponse, c.CheckRedirect(nil, nil))
+	})
+
+	t.Run("no-cookie-jar clears jar", func(t *testing.T) {
+		c := clientFor(base, request.Directives{NoCookieJar: true}, "")
+		assert.Nil(t, c.Jar)
+		assert.NotNil(t, base.Jar, "base must not be mutated")
+	})
+
+	t.Run("http2 proto swaps transport on the copy only", func(t *testing.T) {
+		c := clientFor(base, request.Directives{}, "HTTP/2")
+		assert.IsType(t, &http2.Transport{}, c.Transport)
+		assert.Equal(t, http.DefaultTransport, base.Transport, "base must not be mutated")
+	})
+}

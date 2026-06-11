@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/cookiejar"
 	"os"
 	"path/filepath"
 	"strings"
@@ -109,8 +110,16 @@ func run(cfg Config, input string) error {
 		return fmt.Errorf("cannot read file at %s: %w", input, err)
 	}
 
+	// Cookie jar on by default so chained requests share cookies (login →
+	// authenticated follow-up); `# @no-cookie-jar` opts a request out.
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return fmt.Errorf("creating cookie jar: %w", err)
+	}
+
 	client := &http.Client{
 		Timeout: 30 * time.Second,
+		Jar:     jar,
 	}
 
 	envVars := make(map[string]string)
@@ -167,7 +176,7 @@ func run(cfg Config, input string) error {
 			continue
 		}
 
-		runner.Send(httpRequest)
+		runner.Send(template, httpRequest)
 	}
 
 	return nil
