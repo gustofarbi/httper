@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -35,6 +36,11 @@ var (
 		"v",
 		false,
 		"verbose output",
+	)
+	names = flag.String(
+		"name",
+		"",
+		"run only requests with these names (comma-separated)",
 	)
 )
 
@@ -119,6 +125,11 @@ func run(cfg Config, input string) error {
 		return fmt.Errorf("cannot parse input file: %w", err)
 	}
 
+	templates, err := filterTemplates(httpFile.Templates, *names)
+	if err != nil {
+		return err
+	}
+
 	store := vars.NewStore(envVars, httpFile.Vars, vars.NewGlobals())
 	resolve := store.Resolve
 
@@ -147,8 +158,8 @@ func run(cfg Config, input string) error {
 		SaveRoot: saveRoot,
 	}
 
-	for i, template := range httpFile.Templates {
-		slog.Debug("sending request", "number", i+1, "total", len(httpFile.Templates))
+	for i, template := range templates {
+		slog.Debug("sending request", "number", i+1, "total", len(templates))
 
 		httpRequest, err := template.Build(resolve, dir)
 		if err != nil {
@@ -160,6 +171,32 @@ func run(cfg Config, input string) error {
 	}
 
 	return nil
+}
+
+// filterTemplates keeps only templates whose name is in the comma-separated
+// filter, preserving file order. An empty filter keeps everything.
+func filterTemplates(templates []*request.Template, filter string) ([]*request.Template, error) {
+	if filter == "" {
+		return templates, nil
+	}
+
+	wanted := make(map[string]bool)
+	for _, name := range strings.Split(filter, ",") {
+		wanted[strings.TrimSpace(name)] = true
+	}
+
+	kept := make([]*request.Template, 0, len(wanted))
+	for _, template := range templates {
+		if wanted[template.Name] {
+			kept = append(kept, template)
+		}
+	}
+
+	if len(kept) == 0 {
+		return nil, fmt.Errorf("no requests match -name %q", filter)
+	}
+
+	return kept, nil
 }
 
 func loadEnv(envFile, environment string) env.Environment {

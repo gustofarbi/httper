@@ -139,7 +139,11 @@ func TestE2ESavesResponse(t *testing.T) {
 	defer func() { _ = root.Close() }()
 
 	content := strings.ReplaceAll("GET "+fixtureHost+"/bearer\nAuthorization: Bearer 42069", fixtureHost, srv.URL)
-	reqs, err := request.Create(content, "")
+	httpFile, err := request.ParseFile(content)
+	require.NoError(t, err)
+	require.Len(t, httpFile.Templates, 1)
+
+	req, err := httpFile.Templates[0].Build(func(s string) string { return s }, "")
 	require.NoError(t, err)
 
 	runner := &Runner{
@@ -148,7 +152,7 @@ func TestE2ESavesResponse(t *testing.T) {
 		Config:   Config{Save: true},
 		SaveRoot: root,
 	}
-	runner.Send(reqs[0])
+	runner.Send(req)
 
 	entries, err := os.ReadDir(tmp + "/.idea/httpRequests")
 	require.NoError(t, err)

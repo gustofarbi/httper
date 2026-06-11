@@ -13,6 +13,26 @@ import (
 // files by base name within this dir: os.Root rejects ".." traversal.
 const testdataDir = "../../testdata"
 
+// buildAll parses content and builds every template with an identity
+// resolver, mirroring what the old eager Create did.
+func buildAll(content, wd string) ([]*http.Request, error) {
+	file, err := ParseFile(content)
+	if err != nil {
+		return nil, err
+	}
+
+	requests := make([]*http.Request, 0, len(file.Templates))
+	for _, template := range file.Templates {
+		built, err := template.Build(func(s string) string { return s }, wd)
+		if err != nil {
+			return nil, err
+		}
+		requests = append(requests, built)
+	}
+
+	return requests, nil
+}
+
 func TestCreate(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -162,7 +182,7 @@ func TestCreate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			reqs, err := Create(tt.content, tt.wd)
+			reqs, err := buildAll(tt.content, tt.wd)
 			if tt.wantErr {
 				assert.Error(t, err)
 				return

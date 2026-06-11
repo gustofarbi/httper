@@ -7,14 +7,11 @@ import (
 	"net/http"
 	"net/textproto"
 	"net/url"
-	"regexp"
 	"slices"
 	"strings"
 )
 
 var (
-	splitRequestsRegex = regexp.MustCompile(`(?m)^###`)
-
 	methods = []string{
 		http.MethodGet,
 		http.MethodHead,
@@ -35,50 +32,6 @@ var (
 		"HTTP/2 (Prior Knowledge)",
 	}
 )
-
-func Create(content, wd string) ([]*http.Request, error) {
-	requests := make([]*http.Request, 0)
-
-	for _, part := range splitRequests(content) {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-
-		request, err := parse(part, wd)
-		if err != nil {
-			return nil, fmt.Errorf("parsing request: %w", err)
-		}
-
-		requests = append(requests, request)
-	}
-
-	return requests, nil
-}
-
-func splitRequests(content string) []string {
-	return splitRequestsRegex.Split(content, -1)
-}
-
-func splitRequest(content string) (essentials, headers, body string) {
-	var head string
-	head, body, _ = strings.Cut(content, "\n\n")
-
-	head = strings.ReplaceAll(head, "\n    ", "")
-
-	essentials, headers, _ = strings.Cut(head, "\n")
-
-	essentials = strings.TrimSpace(essentials)
-	headers = strings.TrimSpace(headers)
-	body = strings.TrimSpace(body)
-
-	return
-}
-
-func parse(content, wd string) (*http.Request, error) {
-	essentialsRaw, headersRaw, bodyRaw := splitRequest(content)
-	return buildRequest(essentialsRaw, headersRaw, bodyRaw, wd)
-}
 
 func buildRequest(essentialsRaw, headersRaw, bodyRaw, wd string) (*http.Request, error) {
 	headers := parseHeaders(headersRaw)

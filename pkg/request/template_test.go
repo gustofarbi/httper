@@ -4,6 +4,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -71,6 +72,70 @@ func TestParseFile(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, file.Templates)
 		assert.Equal(t, "https://localhost:8080", file.Vars["host"])
+	})
+
+	t.Run("named requests via @name directive", func(t *testing.T) {
+		file, err := ParseFile(
+			"# @name Login\n" +
+				"GET https://localhost:8080/a\n" +
+				"###\n" +
+				"// @name Fetch\n" +
+				"GET https://localhost:8080/b",
+		)
+		require.NoError(t, err)
+		require.Len(t, file.Templates, 2)
+		assert.Equal(t, "Login", file.Templates[0].Name)
+		assert.Equal(t, "Fetch", file.Templates[1].Name)
+	})
+
+	t.Run("separator title names request", func(t *testing.T) {
+		file, err := ParseFile(
+			"GET https://localhost:8080/a\n" +
+				"### Fetch the thing\n" +
+				"GET https://localhost:8080/b",
+		)
+		require.NoError(t, err)
+		require.Len(t, file.Templates, 2)
+		assert.Equal(t, "#1", file.Templates[0].Name)
+		assert.Equal(t, "Fetch the thing", file.Templates[1].Name)
+	})
+
+	t.Run("directives parsed", func(t *testing.T) {
+		file, err := ParseFile(
+			"# @no-redirect\n" +
+				"# @no-cookie-jar\n" +
+				"# @no-log\n" +
+				"# @timeout 5\n" +
+				"GET https://localhost:8080/a",
+		)
+		require.NoError(t, err)
+		require.Len(t, file.Templates, 1)
+
+		d := file.Templates[0].Directives
+		assert.True(t, d.NoRedirect)
+		assert.True(t, d.NoCookieJar)
+		assert.True(t, d.NoLog)
+		assert.Equal(t, 5*time.Second, d.Timeout)
+	})
+
+	t.Run("comments skipped outside body", func(t *testing.T) {
+		file, err := ParseFile(
+			"# leading comment\n" +
+				"GET https://localhost:8080/a\n" +
+				"// between headers\n" +
+				"Accept: application/json\n" +
+				"# another\n" +
+				"X-Other: 1\n\n" +
+				"body # stays intact\n" +
+				"// also body",
+		)
+		require.NoError(t, err)
+		require.Len(t, file.Templates, 1)
+
+		tpl := file.Templates[0]
+		assert.Equal(t, "GET https://localhost:8080/a", tpl.Essentials)
+		assert.Equal(t, "Accept: application/json\nX-Other: 1", tpl.HeadersRaw)
+		assert.Equal(t, "body # stays intact\n// also body", tpl.BodyRaw)
 	})
 
 	t.Run("empty content yields no templates", func(t *testing.T) {
