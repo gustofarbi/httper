@@ -12,6 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestVersionString(t *testing.T) {
+	assert.Equal(t, "httper dev", versionString())
+}
+
 func sampleResults() []*Result {
 	return []*Result{
 		{

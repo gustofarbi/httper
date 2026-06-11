@@ -18,7 +18,16 @@ import (
 	"time"
 )
 
+// version is overridden at release build time via
+// -ldflags "-X main.version=...".
+var version = "dev"
+
 var (
+	showVersion = flag.Bool(
+		"version",
+		false,
+		"print version and exit",
+	)
 	save = flag.Bool(
 		"save",
 		false,
@@ -57,8 +66,17 @@ type Config struct {
 	Verbose bool
 }
 
+func versionString() string {
+	return "httper " + version
+}
+
 func main() {
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(versionString())
+		return
+	}
 
 	cfg := Config{Save: *save, Verbose: *verbose}
 	initLogger(cfg.Verbose)
