@@ -12,6 +12,23 @@ import (
 	"strings"
 )
 
+// NewMux wires every echo route to its handler. It is the single source of
+// truth shared by the standalone echo server (cmd/echo) and the in-process
+// end-to-end tests.
+func NewMux() *http.ServeMux {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/", CatchAll)
+	mux.HandleFunc("GET /http2", Http2)
+	mux.HandleFunc("GET /image", Image)
+	mux.HandleFunc("GET /bearer", Bearer)
+	mux.HandleFunc("GET /basic-auth", BasicAuth)
+	mux.HandleFunc("POST /json", JsonBody)
+	mux.HandleFunc("POST /form-data", FormData)
+
+	return mux
+}
+
 func Image(w http.ResponseWriter, _ *http.Request) {
 	im := image.NewRGBA(image.Rect(0, 0, 100, 100))
 	draw.Draw(im, im.Bounds(), image.White, image.Point{}, draw.Src)

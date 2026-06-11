@@ -24,7 +24,7 @@ Content-Type: multipart/form-data; boundary=foo
 Content-Disposition: form-data; name="image"; filename="Cargo.lock"
 Content-Type: application/octet-stream
 
-< ../makefile
+< upload1.txt
 --foo
 content-Disposition: form-data; name="title"
 Content-Type: text/plain

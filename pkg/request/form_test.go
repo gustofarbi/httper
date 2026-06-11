@@ -8,7 +8,23 @@ import (
 )
 
 func TestGetFormDataBody(t *testing.T) {
-	//reader := getFormDataBody("foo", formContent)
+	body := "--foo\n" +
+		"Content-Disposition: form-data; name=\"title\"\n" +
+		"Content-Type: text/plain\n\n" +
+		"hello world\n" +
+		"--foo--"
+
+	r, err := getFormDataBody("foo", body, "")
+	assert.NoError(t, err)
+
+	buf := new(bytes.Buffer)
+	_, err = io.Copy(buf, r)
+	assert.NoError(t, err)
+
+	out := buf.String()
+	assert.Contains(t, out, "--foo")
+	assert.Contains(t, out, `name="title"`)
+	assert.Contains(t, out, "hello world")
 }
 
 func TestGetFiles(t *testing.T) {

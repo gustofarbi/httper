@@ -3,12 +3,13 @@ package finalize
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"strings"
 )
 
-// PrettyPrintJSON formats and prints JSON content
-func PrettyPrintJSON(content string) {
+// PrettyPrintJSON formats and writes JSON content to w.
+func PrettyPrintJSON(w io.Writer, content string) {
 	var jsonData interface{}
 
 	content = strings.TrimSpace(content)
@@ -19,16 +20,16 @@ func PrettyPrintJSON(content string) {
 	err := json.Unmarshal([]byte(content), &jsonData)
 	if err != nil {
 		// Not valid JSON, just print it as is
-		fmt.Println(content)
+		_, _ = fmt.Fprintln(w, content)
 		return
 	}
 
 	prettyJSON, err := json.MarshalIndent(jsonData, "", "  ")
 	if err != nil {
 		slog.Error("formatting JSON", "err", err)
-		fmt.Println(content)
+		_, _ = fmt.Fprintln(w, content)
 		return
 	}
 
-	fmt.Println(string(prettyJSON))
+	_, _ = fmt.Fprintln(w, string(prettyJSON))
 }

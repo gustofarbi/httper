@@ -68,12 +68,15 @@ func getExtension(response *http.Response, body []byte) string {
 	return ".txt"
 }
 
+// now is overridable in tests so saved filenames are deterministic.
+var now = time.Now
+
 func getFilename(statusCode int, ext string) string {
 	// Include sub-second precision so multiple responses saved within the same
 	// second don't collide and overwrite each other.
 	return fmt.Sprintf(
 		"%s.%d%s",
-		time.Now().Format("2006-01-02T150405.000000000"),
+		now().Format("2006-01-02T150405.000000000"),
 		statusCode,
 		ext,
 	)

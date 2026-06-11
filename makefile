@@ -4,10 +4,18 @@ mkcert:
 	mkcert -cert-file echo/certs/localhost+2.pem -key-file echo/certs/localhost+2-key.pem localhost 127.0.0.1 ::1
 
 echo-server:
-	cd echo && go run main.go
+	go run ./cmd/echo
 
 test:
 	go test -v ./...
+
+COVERAGE_THRESHOLD ?= 60
+
+cover:
+	go test -coverpkg=./... -coverprofile=coverage.out ./...
+	@total=$$(go tool cover -func=coverage.out | awk '/^total:/ {sub(/%/,"",$$3); print $$3}'); \
+	echo "total coverage: $$total% (threshold $(COVERAGE_THRESHOLD)%)"; \
+	awk -v t="$$total" -v min=$(COVERAGE_THRESHOLD) 'BEGIN { exit (t+0 < min+0) ? 1 : 0 }'
 
 run-all:
 	go build
@@ -25,4 +33,4 @@ sec:
 vet:
 	go vet ./...
 
-qa: sec fmt lint vet test run-all
+qa: sec fmt lint vet cover

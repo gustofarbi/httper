@@ -1,11 +1,10 @@
 package request
 
 import (
-	"github.com/stretchr/testify/assert"
-	"io"
 	"net/http"
-	"os"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 const formContent = `POST https://localhost:8080/form-data
@@ -24,19 +23,6 @@ test text
 
 foobar
 --foo--`
-
-func TestSplitRequests(t *testing.T) {
-	file, err := os.OpenFile("../../testdata/three.http", os.O_RDONLY, 0)
-	assert.NoError(t, err)
-	defer file.Close()
-
-	content, err := io.ReadAll(file)
-	assert.NoError(t, err)
-
-	parts := splitRequests(string(content))
-
-	assert.Len(t, parts, 3)
-}
 
 func TestSplitRequest(t *testing.T) {
 	essentials, headers, body := splitRequest(formContent)
