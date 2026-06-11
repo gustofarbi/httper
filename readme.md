@@ -102,10 +102,14 @@ each use:
 
 | Variable | Value |
 |----------|-------|
-| `{{$uuid}}` | Random UUID v4 |
+| `{{$uuid}}` / `{{$random.uuid}}` | Random UUID v4 |
 | `{{$timestamp}}` | Unix timestamp (seconds) |
 | `{{$isoTimestamp}}` | ISO-8601 / RFC 3339 UTC timestamp |
 | `{{$randomInt}}` | Random integer 0–1000 |
+| `{{$random.integer(from, to)}}` | Random integer, `from` inclusive to `to` exclusive |
+| `{{$random.alphabetic(length)}}` | Random letters |
+| `{{$random.email}}` | Random email address |
+| `{{$env.NAME}}` | OS environment variable (empty + warning when unset) |
 
 ### Scripts
 

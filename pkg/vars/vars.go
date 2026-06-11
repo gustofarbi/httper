@@ -7,6 +7,7 @@ package vars
 import (
 	"io"
 	"log/slog"
+	"os"
 	"regexp"
 	"time"
 )
@@ -32,11 +33,13 @@ func (g *Globals) Get(key string) (string, bool) {
 	return v, ok
 }
 
-// Store resolves placeholders against the layered variable sources. Now and
-// Rand back the dynamic variables and are injectable for deterministic tests.
+// Store resolves placeholders against the layered variable sources. Now,
+// Rand, and Getenv back the dynamic variables and are injectable for
+// deterministic tests.
 type Store struct {
-	Now  func() time.Time
-	Rand io.Reader
+	Now    func() time.Time
+	Rand   io.Reader
+	Getenv func(string) string
 
 	local   map[string]string
 	globals *Globals
@@ -48,6 +51,7 @@ func NewStore(env, file map[string]string, globals *Globals) *Store {
 	return &Store{
 		Now:     time.Now,
 		Rand:    defaultRand,
+		Getenv:  os.Getenv,
 		local:   make(map[string]string),
 		globals: globals,
 		file:    file,
