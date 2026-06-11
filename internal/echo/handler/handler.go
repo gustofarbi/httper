@@ -27,12 +27,25 @@ func NewMux() *http.ServeMux {
 	mux.HandleFunc("POST /form-data", FormData)
 	mux.HandleFunc("POST /token", Token)
 	mux.HandleFunc("POST /urlencoded", URLEncoded)
+	mux.HandleFunc("POST /raw", Raw)
 	mux.HandleFunc("GET /redirect", Redirect)
 	mux.HandleFunc("GET /redirected", Redirected)
 	mux.HandleFunc("GET /set-cookie", SetCookie)
 	mux.HandleFunc("GET /need-cookie", NeedCookie)
 
 	return mux
+}
+
+// Raw echoes the request's Content-Type and body verbatim, so fixtures can
+// assert raw-body passthrough.
+func Raw(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	_, _ = fmt.Fprintf(w, "%s: %s", r.Header.Get("Content-Type"), body)
 }
 
 func URLEncoded(w http.ResponseWriter, r *http.Request) {

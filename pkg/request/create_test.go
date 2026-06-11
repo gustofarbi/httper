@@ -153,8 +153,28 @@ func TestCreate(t *testing.T) {
 			},
 		},
 		{
-			name:    "unknown content-type yields nil body, no error",
+			name:    "unknown content-type sends body verbatim",
 			content: "POST https://localhost:8080/x\nContent-Type: text/plain\n\nhello",
+			check: func(t *testing.T, reqs []*http.Request) {
+				require.Len(t, reqs, 1)
+				body, err := io.ReadAll(reqs[0].Body)
+				require.NoError(t, err)
+				assert.Equal(t, "hello", string(body))
+			},
+		},
+		{
+			name:    "missing content-type sends body verbatim",
+			content: "POST https://localhost:8080/x\n\n<note>hi</note>",
+			check: func(t *testing.T, reqs []*http.Request) {
+				require.Len(t, reqs, 1)
+				body, err := io.ReadAll(reqs[0].Body)
+				require.NoError(t, err)
+				assert.Equal(t, "<note>hi</note>", string(body))
+			},
+		},
+		{
+			name:    "no body stays nil",
+			content: "GET https://localhost:8080/x",
 			check: func(t *testing.T, reqs []*http.Request) {
 				require.Len(t, reqs, 1)
 				assert.Nil(t, reqs[0].Body)

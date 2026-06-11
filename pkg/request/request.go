@@ -156,7 +156,7 @@ func transferHeaders(request *http.Request, headers textproto.MIMEHeader) {
 }
 
 func parseBody(contentType, body, wd string) (io.Reader, error) {
-	if contentType == "" {
+	if body == "" {
 		return nil, nil
 	}
 
@@ -170,8 +170,9 @@ func parseBody(contentType, body, wd string) (io.Reader, error) {
 	case "application/x-www-form-urlencoded":
 		return getURLEncodedBody(body), nil
 	default:
-		slog.Warn("unknown content-type", "content-type", contentType)
-		return nil, nil
+		// Any other (or missing) content type sends the body verbatim.
+		slog.Debug("sending body verbatim", "content-type", contentType)
+		return strings.NewReader(body), nil
 	}
 }
 
