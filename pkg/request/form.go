@@ -111,16 +111,26 @@ func getFiles(bodyRaw, wd string) (io.Reader, error) {
 	lines := strings.Split(bodyRaw, "\n")
 	files := make([]io.Reader, 0, len(lines))
 
+	root, err := os.OpenRoot(wd)
+	if err != nil {
+		return nil, fmt.Errorf("opening root: %w", err)
+	}
+
 	for i, line := range lines {
 		if !strings.HasPrefix(line, "< ") {
 			continue
 		}
 
 		filename := strings.TrimPrefix(line, "< ")
-		filepath := path.Join(wd, filename)
-		f, err := os.Open(filepath)
+		filename = strings.TrimSpace(filename)
+		if filename == "" {
+			continue
+		}
+
+		// root is rooted at wd, so OpenFile needs the path relative to it.
+		f, err := root.OpenFile(filename, os.O_RDONLY, 0)
 		if err != nil {
-			return nil, fmt.Errorf("opening file: %w", err)
+			return nil, fmt.Errorf("opening file %s: %w", path.Join(wd, filename), err)
 		}
 
 		files = append(files, f)
@@ -128,6 +138,10 @@ func getFiles(bodyRaw, wd string) (io.Reader, error) {
 		if i != len(lines)-1 {
 			files = append(files, strings.NewReader("\n"))
 		}
+	}
+
+	if len(files) == 0 {
+		return strings.NewReader(""), nil
 	}
 
 	return io.MultiReader(files...), nil

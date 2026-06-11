@@ -7,10 +7,11 @@ import (
 	"httper/pkg/env"
 	"httper/pkg/finalize"
 	"httper/pkg/request"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
-	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -77,13 +78,30 @@ func validateInput() error {
 }
 
 func run(input string) error {
-	contentRaw, err := os.ReadFile(input)
+	dir := filepath.Dir(input)
+
+	inputRoot, err := os.OpenRoot(dir)
+	if err != nil {
+		return fmt.Errorf("cannot open root: %w", err)
+	}
+	defer inputRoot.Close()
+
+	// inputRoot is rooted at dir, so open the file by its base name relative to it.
+	file, err := inputRoot.OpenFile(filepath.Base(input), os.O_RDONLY, 0)
+	if err != nil {
+		return fmt.Errorf("cannot open file at %s: %w", input, err)
+	}
+	defer file.Close()
+
+	contentRaw, err := io.ReadAll(file)
 	if err != nil {
 		return fmt.Errorf("cannot read file at %s: %w", input, err)
 	}
 
 	content := string(contentRaw)
-	client := http.DefaultClient
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
 
 	if *environment != "" {
 		envMap := loadEnv(*envFile, *environment)
@@ -92,13 +110,32 @@ func run(input string) error {
 		}
 	}
 
-	httpRequests, err := request.Create(content, path.Dir(input))
+	httpRequests, err := request.Create(content, dir)
 	if err != nil {
 		return fmt.Errorf("cannot create basic httpRequest: %w", err)
 	}
 
-	for _, httpRequest := range httpRequests {
-		sendRequest(httpRequest, client)
+	if len(httpRequests) == 0 {
+		slog.Warn("no requests found in the input file")
+		return nil
+	}
+
+	// Responses are saved under the current working directory; open the root
+	// once and reuse it across every request instead of per-request.
+	wd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("cannot get working directory: %w", err)
+	}
+
+	saveRoot, err := os.OpenRoot(wd)
+	if err != nil {
+		return fmt.Errorf("cannot open save root: %w", err)
+	}
+	defer saveRoot.Close()
+
+	for i, httpRequest := range httpRequests {
+		slog.Debug("sending request", "number", i+1, "total", len(httpRequests))
+		sendRequest(httpRequest, client, saveRoot)
 	}
 
 	return nil
@@ -109,7 +146,14 @@ func loadEnv(envFile, environment string) env.Environment {
 		return nil
 	}
 
-	envs, err := env.Parse(envFile)
+	root, err := os.OpenRoot(filepath.Dir(envFile))
+	if err != nil {
+		slog.Error("opening root", "err", err)
+		return nil
+	}
+
+	// root is rooted at the env file's dir; Parse opens by base name relative to it.
+	envs, err := env.Parse(root, filepath.Base(envFile))
 	if err != nil {
 		slog.Error("parsing env file", "err", err)
 		return nil
@@ -118,13 +162,15 @@ func loadEnv(envFile, environment string) env.Environment {
 	return envs[environment]
 }
 
-func sendRequest(httpRequest *http.Request, client *http.Client) {
+func sendRequest(httpRequest *http.Request, client *http.Client, root *os.Root) {
 	fmt.Println(httpRequest.URL)
 
-	transport := http.DefaultTransport
-	// todo prior knowledge
+	// Configure transport based on protocol
+	var transport http.RoundTripper
 	if strings.HasPrefix(httpRequest.Proto, "HTTP/2") {
 		transport = &http2.Transport{}
+	} else {
+		transport = http.DefaultTransport
 	}
 
 	client.Transport = transport
@@ -132,12 +178,14 @@ func sendRequest(httpRequest *http.Request, client *http.Client) {
 	start := time.Now()
 	response, err := client.Do(httpRequest)
 	if err != nil {
-		slog.Error("sending request", "err", err)
+		slog.Error("sending request", "err", err, "url", httpRequest.URL.String())
 		return
 	}
 
 	defer func() {
-		_ = response.Body.Close()
+		if err := response.Body.Close(); err != nil {
+			slog.Debug("closing response body", "err", err)
+		}
 	}()
 
 	finalize.Response(
@@ -145,14 +193,20 @@ func sendRequest(httpRequest *http.Request, client *http.Client) {
 		time.Since(start),
 		*save,
 		*verbose,
+		root,
 	)
 }
 
 func initLogger() {
+	logLevel := slog.LevelInfo
+	if *verbose {
+		logLevel = slog.LevelDebug
+	}
+
 	logger := slog.New(
 		slog.NewTextHandler(
 			os.Stdout, &slog.HandlerOptions{
-				Level: slog.LevelInfo,
+				Level: logLevel,
 			},
 		),
 	)

@@ -1,28 +1,27 @@
 package finalize
 
 import (
+	"errors"
 	"fmt"
 	"github.com/gabriel-vasile/mimetype"
-	"io"
 	"mime"
 	"net/http"
 	"os"
-	"path"
 	"path/filepath"
 	"sort"
-	"strings"
 	"time"
 )
 
-func saveResponse(response *http.Response) error {
-	prefix, err := getFilePrefix()
+func saveResponse(root *os.Root, response *http.Response, body []byte) error {
+	prefix, err := getFilePrefix(root)
 	if err != nil {
 		return fmt.Errorf("getting file prefix: %w", err)
 	}
 
-	extension := getExtension(response)
+	extension := getExtension(response, body)
 
-	file, err := os.Create(path.Join(prefix, getFilename(response.StatusCode, extension)))
+	filePath := filepath.Join(prefix, getFilename(response.StatusCode, extension))
+	file, err := root.OpenFile(filePath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
 	if err != nil {
 		return fmt.Errorf("creating file: %w", err)
 	}
@@ -31,52 +30,33 @@ func saveResponse(response *http.Response) error {
 		_ = file.Close()
 	}()
 
-	if _, err = io.Copy(file, response.Body); err != nil {
-		return fmt.Errorf("copying response body: %w", err)
+	if _, err = file.Write(body); err != nil {
+		return fmt.Errorf("writing response body: %w", err)
 	}
 
 	return nil
 }
 
-func getFilePrefix() (string, error) {
-	const prefix = ".idea/httpRequests"
+func getFilePrefix(root *os.Root) (string, error) {
+	const (
+		ideaDir   = ".idea"
+		prefixDir = ".idea/httpRequests"
+	)
 
-	// current directory has .idea dir
-	if finfo, err := os.Stat(".idea"); err == nil && finfo.IsDir() {
-		if _, err = os.Stat(prefix); err != nil {
-			if err = os.MkdirAll(prefix, 0755); err != nil {
-				return "", fmt.Errorf("creating dir: %w", err)
-			}
-		}
-
-		return prefix, nil
-	}
-
-	// parent directory has .idea dir
-	wd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("getting working directory: %w", err)
-	}
-
-	parts := strings.Split(wd, string(filepath.Separator))
-	for i, part := range parts {
-		if part == ".idea" {
-			return string(filepath.Separator) + strings.Join(parts[:i+1], string(filepath.Separator)), nil
+	// root.Mkdir is non-recursive, so create each level, tolerating dirs that
+	// already exist (e.g. across multiple requests in the same run).
+	for _, dir := range []string{ideaDir, prefixDir} {
+		if err := root.Mkdir(dir, 0755); err != nil && !errors.Is(err, os.ErrExist) {
+			return "", fmt.Errorf("creating dir %s: %w", dir, err)
 		}
 	}
 
-	// fallback to current directory
-	if err = os.MkdirAll(prefix, 0755); err != nil {
-		return "", fmt.Errorf("creating dir: %w", err)
-	}
-
-	return prefix, nil
+	return prefixDir, nil
 }
 
-func getExtension(response *http.Response) string {
-	mimeType, err := mimetype.DetectReader(response.Body)
-	if err == nil {
-		return mimeType.Extension()
+func getExtension(response *http.Response, body []byte) string {
+	if ext := mimetype.Detect(body).Extension(); ext != "" {
+		return ext
 	}
 
 	exts, err := mime.ExtensionsByType(response.Header.Get("Content-Type"))
@@ -89,9 +69,11 @@ func getExtension(response *http.Response) string {
 }
 
 func getFilename(statusCode int, ext string) string {
+	// Include sub-second precision so multiple responses saved within the same
+	// second don't collide and overwrite each other.
 	return fmt.Sprintf(
 		"%s.%d%s",
-		time.Now().Format("2006-01-02T150405"),
+		time.Now().Format("2006-01-02T150405.000000000"),
 		statusCode,
 		ext,
 	)

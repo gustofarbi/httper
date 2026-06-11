@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"time"
 )
 
 const address = ":8080"
@@ -31,11 +32,15 @@ func main() {
 	certFile := path.Join(wd, "certs/localhost+2.pem")
 	keyFile := path.Join(wd, "certs/localhost+2-key.pem")
 
-	if err = http.ListenAndServeTLS(
-		address,
+	server := &http.Server{
+		Handler:           mux,
+		Addr:              address,
+		ReadHeaderTimeout: 3 * time.Second,
+	}
+
+	if err = server.ListenAndServeTLS(
 		certFile,
 		keyFile,
-		mux,
 	); err != nil {
 		panic(err)
 	}

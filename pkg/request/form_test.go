@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"github.com/stretchr/testify/assert"
 	"io"
-	"os"
 	"testing"
 )
 
@@ -13,12 +12,12 @@ func TestGetFormDataBody(t *testing.T) {
 }
 
 func TestGetFiles(t *testing.T) {
-	bodyRaw := `< ../../testdata/bearer.http
-< ../../testdata/get.http`
+	// Includes are resolved relative to wd and sandboxed to it via os.Root,
+	// so reference the fixtures by base name with wd set to the testdata dir.
+	bodyRaw := `< bearer.http
+< get.http`
 
-	wd, err := os.Getwd()
-	assert.NoError(t, err)
-	r, err := getFiles(bodyRaw, wd)
+	r, err := getFiles(bodyRaw, "../../testdata")
 	assert.NoError(t, err)
 
 	actual := new(bytes.Buffer)

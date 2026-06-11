@@ -28,8 +28,12 @@ func (m EnvironmentMap) Get(name string) Environment {
 	return m[name]
 }
 
-func Parse(path string) (EnvironmentMap, error) {
-	f, err := os.Open(path)
+func Parse(root *os.Root, path string) (EnvironmentMap, error) {
+	if path == "" {
+		return nil, fmt.Errorf("path is required")
+	}
+
+	f, err := root.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("cannot open env file: %w", err)
 	}

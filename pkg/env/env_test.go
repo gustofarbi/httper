@@ -1,12 +1,17 @@
 package env
 
 import (
-	"github.com/stretchr/testify/assert"
+	"os"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestParse(t *testing.T) {
-	envs, err := Parse("../../testdata/http-client.env.json")
+	root, err := os.OpenRoot("../../testdata")
+	assert.NoError(t, err)
+
+	envs, err := Parse(root, "http-client.env.json")
 	assert.NoError(t, err)
 
 	env := envs["dev"]

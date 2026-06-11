@@ -12,3 +12,17 @@ test:
 run-all:
 	go build
 	for file in "testdata"/*.http; do if [ -f "$$file" ]; then echo "Running $$file"; ./httper $$file; fi; done
+
+fmt:
+	go fmt ./...
+
+lint:
+	golangci-lint run ./...
+	
+sec:
+	gosec -quiet ./...
+
+vet:
+	go vet ./...
+
+qa: sec fmt lint vet test run-all

@@ -2,6 +2,7 @@ package request
 
 import (
 	"github.com/stretchr/testify/assert"
+	"io"
 	"net/http"
 	"os"
 	"testing"
@@ -25,7 +26,11 @@ foobar
 --foo--`
 
 func TestSplitRequests(t *testing.T) {
-	content, err := os.ReadFile("../../testdata/three.http")
+	file, err := os.OpenFile("../../testdata/three.http", os.O_RDONLY, 0)
+	assert.NoError(t, err)
+	defer file.Close()
+
+	content, err := io.ReadAll(file)
 	assert.NoError(t, err)
 
 	parts := splitRequests(string(content))
