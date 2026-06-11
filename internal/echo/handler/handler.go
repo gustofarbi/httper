@@ -9,7 +9,9 @@ import (
 	"image/jpeg"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // NewMux wires every echo route to its handler. It is the single source of
@@ -28,12 +30,26 @@ func NewMux() *http.ServeMux {
 	mux.HandleFunc("POST /token", Token)
 	mux.HandleFunc("POST /urlencoded", URLEncoded)
 	mux.HandleFunc("POST /raw", Raw)
+	mux.HandleFunc("GET /slow", Slow)
 	mux.HandleFunc("GET /redirect", Redirect)
 	mux.HandleFunc("GET /redirected", Redirected)
 	mux.HandleFunc("GET /set-cookie", SetCookie)
 	mux.HandleFunc("GET /need-cookie", NeedCookie)
 
 	return mux
+}
+
+// Slow responds after ?ms= milliseconds, so timeout fixtures have something
+// to time out against.
+func Slow(w http.ResponseWriter, r *http.Request) {
+	ms, err := strconv.Atoi(r.URL.Query().Get("ms"))
+	if err != nil {
+		http.Error(w, "ms query param required", http.StatusBadRequest)
+		return
+	}
+
+	time.Sleep(time.Duration(ms) * time.Millisecond)
+	_, _ = fmt.Fprintln(w, "Slow OK")
 }
 
 // Raw echoes the request's Content-Type and body verbatim, so fixtures can

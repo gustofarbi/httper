@@ -86,15 +86,20 @@ func TestNewHTTPClient(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("secure has no custom transport", func(t *testing.T) {
-		c := newHTTPClient(jar, false)
+		c := newHTTPClient(jar, false, 30*time.Second)
 		assert.Nil(t, c.Transport)
 	})
 
 	t.Run("insecure skips tls verification", func(t *testing.T) {
-		c := newHTTPClient(jar, true)
+		c := newHTTPClient(jar, true, 30*time.Second)
 		transport, ok := c.Transport.(*http.Transport)
 		require.True(t, ok)
 		require.NotNil(t, transport.TLSClientConfig)
 		assert.True(t, transport.TLSClientConfig.InsecureSkipVerify)
 	})
+}
+
+func TestNewHTTPClientTimeout(t *testing.T) {
+	c := newHTTPClient(nil, false, 5*time.Second)
+	assert.Equal(t, 5*time.Second, c.Timeout)
 }

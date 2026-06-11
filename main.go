@@ -64,7 +64,34 @@ var (
 		false,
 		"skip TLS certificate verification",
 	)
+	timeout = flag.Int(
+		"timeout",
+		30,
+		"request timeout in seconds (0 disables; per-request @timeout wins)",
+	)
+	cliVars = make(varFlags)
 )
+
+func init() {
+	flag.Var(cliVars, "var", "set a variable as key=value (repeatable; overrides @vars and env file)")
+}
+
+// varFlags collects repeatable -var key=value flags.
+type varFlags map[string]string
+
+func (v varFlags) String() string {
+	return fmt.Sprint(map[string]string(v))
+}
+
+func (v varFlags) Set(s string) error {
+	key, value, ok := strings.Cut(s, "=")
+	if !ok || key == "" {
+		return fmt.Errorf("expected key=value, got %q", s)
+	}
+
+	v[key] = value
+	return nil
+}
 
 // Config holds the runtime options derived from CLI flags.
 type Config struct {
@@ -155,7 +182,7 @@ func run(cfg Config, input string) (Report, error) {
 		return Report{}, fmt.Errorf("creating cookie jar: %w", err)
 	}
 
-	client := newHTTPClient(jar, cfg.Insecure)
+	client := newHTTPClient(jar, cfg.Insecure, time.Duration(*timeout)*time.Second)
 
 	envVars := make(map[string]string)
 	if *environment != "" {
@@ -176,6 +203,7 @@ func run(cfg Config, input string) (Report, error) {
 
 	globals := vars.NewGlobals()
 	store := vars.NewStore(envVars, httpFile.Vars, globals)
+	store.SetCLI(cliVars)
 
 	if len(httpFile.Templates) == 0 {
 		slog.Warn("no requests found in the input file")
@@ -232,9 +260,9 @@ func run(cfg Config, input string) (Report, error) {
 // newHTTPClient builds the base client; insecure swaps in a cloned transport
 // that skips TLS verification (the h2 prior-knowledge transport gets the same
 // treatment in Runner.clientFor).
-func newHTTPClient(jar http.CookieJar, insecure bool) *http.Client {
+func newHTTPClient(jar http.CookieJar, insecure bool, timeout time.Duration) *http.Client {
 	client := &http.Client{
-		Timeout: 30 * time.Second,
+		Timeout: timeout,
 		Jar:     jar,
 	}
 

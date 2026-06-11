@@ -154,3 +154,25 @@ func TestDynamicRandomUUIDAlias(t *testing.T) {
 	got := store.Resolve("{{$random.uuid}}")
 	assert.Regexp(t, regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`), got)
 }
+
+func TestResolvePrecedenceWithCLI(t *testing.T) {
+	globals := NewGlobals()
+	globals.Set("key", "from-globals")
+
+	store := NewStore(
+		map[string]string{"key": "from-env"},
+		map[string]string{"key": "from-file", "f": "file-only"},
+		globals,
+	)
+	store.SetCLI(map[string]string{"key": "from-cli", "c": "cli-only", "f": "from-cli"})
+
+	// runtime-produced values still win over CLI…
+	store.SetLocal("key", "from-local")
+	assert.Equal(t, "from-local", store.Resolve("{{key}}"))
+	store.ClearLocal()
+	assert.Equal(t, "from-globals", store.Resolve("{{key}}"))
+
+	// …but CLI beats everything declared in files
+	assert.Equal(t, "from-cli", store.Resolve("{{f}}"))
+	assert.Equal(t, "cli-only", store.Resolve("{{c}}"))
+}
