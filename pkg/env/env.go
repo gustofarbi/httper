@@ -4,23 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 )
 
 type Environment map[string]interface{}
-
-func (e Environment) Replace(content string) string {
-	oldNew := make([]string, 0, len(e)*2)
-	for search, replace := range e {
-		oldNew = append(
-			oldNew,
-			fmt.Sprintf("{{%s}}", search),
-			fmt.Sprint(replace),
-		)
-	}
-
-	return strings.NewReplacer(oldNew...).Replace(content)
-}
 
 type EnvironmentMap map[string]Environment
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"httper/internal/echo/handler"
 	"httper/pkg/request"
+	"httper/pkg/vars"
 	"net/http/httptest"
 	"os"
 	"strings"
@@ -33,8 +34,10 @@ func runContent(t *testing.T, srv *httptest.Server, content, wd string) string {
 
 	content = strings.ReplaceAll(content, fixtureHost, srv.URL)
 
-	reqs, err := request.Create(content, wd)
+	httpFile, err := request.ParseFile(content)
 	require.NoError(t, err)
+
+	store := vars.NewStore(nil, httpFile.Vars, vars.NewGlobals())
 
 	buf := new(bytes.Buffer)
 	runner := &Runner{
@@ -42,7 +45,9 @@ func runContent(t *testing.T, srv *httptest.Server, content, wd string) string {
 		Out:    buf,
 		Config: Config{},
 	}
-	for _, req := range reqs {
+	for _, tpl := range httpFile.Templates {
+		req, err := tpl.Build(store.Resolve, wd)
+		require.NoError(t, err)
 		runner.Send(req)
 	}
 	return buf.String()
@@ -106,6 +111,14 @@ func TestE2EFixtures(t *testing.T) {
 		assert.Contains(t, out, "200 OK")
 		assert.Contains(t, out, "Part: file, 'include.txt'")
 		assert.Contains(t, out, "Part: title")
+	})
+
+	t.Run("in-file vars and dynamic uuid", func(t *testing.T) {
+		content := "@base = " + fixtureHost + "\n" +
+			"GET {{base}}/?id={{$uuid}}"
+		out := runContent(t, srv, content, "")
+		assert.Contains(t, out, "200 OK")
+		assert.Regexp(t, `id=[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}`, out)
 	})
 
 	t.Run("http2 prior knowledge", func(t *testing.T) {

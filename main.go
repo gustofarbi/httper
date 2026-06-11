@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"httper/pkg/env"
 	"httper/pkg/request"
+	"httper/pkg/vars"
 	"io"
 	"log/slog"
 	"net/http"
@@ -106,11 +107,10 @@ func run(cfg Config, input string) error {
 		Timeout: 30 * time.Second,
 	}
 
-	resolve := func(s string) string { return s }
+	envVars := make(map[string]string)
 	if *environment != "" {
-		envMap := loadEnv(*envFile, *environment)
-		if envMap != nil {
-			resolve = envMap.Replace
+		for key, value := range loadEnv(*envFile, *environment) {
+			envVars[key] = fmt.Sprint(value)
 		}
 	}
 
@@ -118,6 +118,9 @@ func run(cfg Config, input string) error {
 	if err != nil {
 		return fmt.Errorf("cannot parse input file: %w", err)
 	}
+
+	store := vars.NewStore(envVars, httpFile.Vars, vars.NewGlobals())
+	resolve := store.Resolve
 
 	if len(httpFile.Templates) == 0 {
 		slog.Warn("no requests found in the input file")

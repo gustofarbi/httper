@@ -45,6 +45,34 @@ func TestParseFile(t *testing.T) {
 		assert.Equal(t, "GET https://localhost:8080/?foo=bar&baz=foo&query", file.Templates[0].Essentials)
 	})
 
+	t.Run("collects in-file @variables", func(t *testing.T) {
+		file, err := ParseFile(
+			"@host = https://localhost:8080\n" +
+				"@token abc\n" +
+				"GET {{host}}/a\n" +
+				"###\n" +
+				"@late = value\n" +
+				"GET {{host}}/b",
+		)
+		require.NoError(t, err)
+		require.Len(t, file.Templates, 2)
+
+		assert.Equal(t, map[string]string{
+			"host":  "https://localhost:8080",
+			"token": "abc",
+			"late":  "value",
+		}, file.Vars)
+		assert.Equal(t, "GET {{host}}/a", file.Templates[0].Essentials)
+		assert.Equal(t, "GET {{host}}/b", file.Templates[1].Essentials)
+	})
+
+	t.Run("file with only @variables yields no templates", func(t *testing.T) {
+		file, err := ParseFile("@host = https://localhost:8080")
+		require.NoError(t, err)
+		assert.Empty(t, file.Templates)
+		assert.Equal(t, "https://localhost:8080", file.Vars["host"])
+	})
+
 	t.Run("empty content yields no templates", func(t *testing.T) {
 		file, err := ParseFile("   \n  \n")
 		require.NoError(t, err)
