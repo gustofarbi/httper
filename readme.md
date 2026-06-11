@@ -18,7 +18,8 @@ httper [flags] <file.http>
 | `-name <a,b>` | Run only the named requests (comma-separated) |
 | `-save` | Save responses to `.idea/httpRequests/` |
 | `-strict` | Treat non-2xx responses as failures |
-| `-v` | Verbose output (response headers, PASS lines) |
+| `-v` | Verbose output (response headers, PASS lines, debug logs) |
+| `-version` | Print version and exit |
 
 ### Exit codes
 
@@ -26,20 +27,117 @@ httper [flags] <file.http>
 - `1` — usage, parse, or I/O error
 - `2` — failing `client.test` assertions or request send errors (with `-strict`, also any non-2xx response)
 
+## File format
+
+Requests are separated by `###` lines; text after the hashes becomes the
+request title. Comments use `#` or `//`.
+
+```http
+### Login
+# @name login
+POST https://example.com/api/login HTTP/2
+Content-Type: application/json
+
+{"user": "admin", "password": "{{password}}"}
+
+> {%
+    client.test("logged in", function () {
+        client.assert(response.status === 200, "expected 200");
+    });
+    client.global.set("token", response.body.token);
+%}
+
+### Profile
+GET https://example.com/api/profile
+    ?fields=name,email
+Authorization: Bearer {{token}}
+```
+
+- The request line is `[METHOD] URL [PROTO]`; method defaults to `GET`,
+  protocol may be `HTTP/1.1`, `HTTP/2`, or `HTTP/2 (Prior Knowledge)`.
+- Lines indented with four spaces continue the previous line (multi-line
+  URLs/query strings and header values).
+- Headers run until the first blank line; everything after is the body.
+
 ## Supported features
 
-- HTTP methods, headers, JSON / multipart (`< file` includes) / `application/x-www-form-urlencoded` bodies
-- HTTP/2 and HTTP/2 (Prior Knowledge)
-- Bearer and Basic authentication
-- `{{placeholders}}` from env files, in-file `@variables`, and dynamic `{{$uuid}}`, `{{$timestamp}}`, `{{$isoTimestamp}}`, `{{$randomInt}}`
-- Request naming via `# @name` or `### title`, selection via `-name`
-- Per-request directives: `# @no-redirect`, `# @timeout <seconds>`, `# @no-cookie-jar`, `# @no-log`
-- Pre-request scripts `< {% ... %}` and response handlers `> {% ... %}` / `> file.js` (JavaScript via goja): `client.test`, `client.assert`, `client.log`, `client.global`, `response.status/body/headers/contentType`, `request.variables`
-- Request chaining: `client.global.set(...)` in one request resolves `{{placeholders}}` in later ones
-- Cookie jar across requests in one run (opt out per request with `# @no-cookie-jar`)
-- Test report summary with CI-friendly exit codes
+### Requests
 
-Not supported: gRPC, WebSocket, GraphQL execution, `>> file` response redirects.
+- All standard HTTP methods, headers, and bodies: JSON,
+  `multipart/form-data` (with `< filename` file includes), and
+  `application/x-www-form-urlencoded` (pairs may span multiple lines)
+- HTTP/2 and HTTP/2 (Prior Knowledge)
+- Bearer auth (header passthrough) and Basic auth
+  (`Authorization: Basic user password` is base64-encoded automatically)
+- Request naming via `# @name` or `### title` (unnamed requests get `#1`,
+  `#2`, …), selection via `-name`
+- Default request timeout of 30s, overridable per request with `# @timeout`
+
+### Per-request directives
+
+| Directive | Effect |
+|-----------|--------|
+| `# @name <name>` | Name the request |
+| `# @no-redirect` | Don't follow redirects |
+| `# @timeout <seconds>` | Override the 30s default timeout |
+| `# @no-cookie-jar` | Opt this request out of the shared cookie jar |
+| `# @no-log` | Print only the status line for this response |
+
+### Variables
+
+`{{placeholders}}` are resolved per request just before sending. Precedence
+(highest first):
+
+1. Request-local variables set in a pre-request script (`request.variables.set`)
+2. `client.global` values set by handler scripts
+3. In-file `@name = value` definitions
+4. Env file values (`-env-file` + `-env`)
+
+Unknown placeholders stay verbatim. Dynamic variables are computed fresh on
+each use:
+
+| Variable | Value |
+|----------|-------|
+| `{{$uuid}}` | Random UUID v4 |
+| `{{$timestamp}}` | Unix timestamp (seconds) |
+| `{{$isoTimestamp}}` | ISO-8601 / RFC 3339 UTC timestamp |
+| `{{$randomInt}}` | Random integer 0–1000 |
+
+### Scripts
+
+Pre-request scripts (`< {% ... %}`) and response handlers (`> {% ... %}`
+inline, or `> path/to/file.js`) run on an embedded JavaScript engine
+([goja](https://github.com/dop251/goja)). Each script gets a fresh, sandboxed
+runtime — no filesystem, network, or process access — with a 5s wall-clock
+timeout.
+
+Available API:
+
+| Object | Available in | Members |
+|--------|--------------|---------|
+| `client` | both | `test(name, fn)` (response handlers only), `assert(cond, message)`, `log(...args)`, `global.set(name, value)`, `global.get(name)` |
+| `request.variables` | pre-request | `set(name, value)`, `get(name)` |
+| `response` | response handlers | `status`, `body` (JSON bodies parsed into objects), `headers.valueOf(name)`, `headers.valuesOf(name)`, `contentType.mimeType`, `contentType.charset` |
+
+`client.test` results feed the run report and exit code; `client.global.set`
+in one request resolves `{{placeholders}}` in later ones (request chaining).
+
+### Runs
+
+- Cookie jar shared across all requests in one run (login → authenticated
+  follow-up works out of the box); opt out per request with `# @no-cookie-jar`
+- Test report summary with CI-friendly exit codes
+- `-save` writes each response body to
+  `.idea/httpRequests/<timestamp>.<status>.<ext>` under the working directory,
+  with the extension sniffed from the body content
+- Sandboxed file access: body file includes and `> file.js` handler scripts
+  are restricted to the `.http` file's directory; saved responses to the
+  working directory (no `..` traversal)
+
+### Not supported
+
+- gRPC, WebSocket, GraphQL execution (request lines parse, but nothing is sent)
+- `>> file` response redirects (ignored with a warning)
 
 ## Installation
 
