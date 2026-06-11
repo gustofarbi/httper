@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"os"
 	"testing"
 
 	"httper/pkg/request"
@@ -110,4 +111,49 @@ func TestFilterTemplates(t *testing.T) {
 		_, err := filterTemplates(templates, "nope")
 		assert.Error(t, err)
 	})
+}
+
+func TestPrivateEnvName(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"http-client.env.json", "http-client.private.env.json"},
+		{"foo.env.json", "foo.private.env.json"},
+		{"custom.json", "custom.private.json"},
+		{"http-client.private.env.json", ""},
+		{"nope.yaml", ""},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, privateEnvName(tt.in), tt.in)
+	}
+}
+
+func TestLoadEnvPrivateOverlay(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(
+		dir+"/http-client.env.json",
+		[]byte(`{"dev": {"host": "public.example", "token": "public"}}`),
+		0o600,
+	))
+	require.NoError(t, os.WriteFile(
+		dir+"/http-client.private.env.json",
+		[]byte(`{"dev": {"token": "secret"}}`),
+		0o600,
+	))
+
+	environment := loadEnv(dir+"/http-client.env.json", "dev")
+	require.NotNil(t, environment)
+	assert.Equal(t, "public.example", environment["host"])
+	assert.Equal(t, "secret", environment["token"], "private file overrides public")
+}
+
+func TestLoadEnvWithoutPrivateFile(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(
+		dir+"/http-client.env.json",
+		[]byte(`{"dev": {"host": "public.example"}}`),
+		0o600,
+	))
+
+	environment := loadEnv(dir+"/http-client.env.json", "dev")
+	require.NotNil(t, environment)
+	assert.Equal(t, "public.example", environment["host"])
 }

@@ -95,7 +95,9 @@ Authorization: Bearer {{token}}
 1. Request-local variables set in a pre-request script (`request.variables.set`)
 2. `client.global` values set by handler scripts
 3. In-file `@name = value` definitions
-4. Env file values (`-env-file` + `-env`)
+4. Env file values (`-env-file` + `-env`); a private sibling file
+   (`http-client.private.env.json` next to `http-client.env.json`) overlays
+   the public one key-wise — keep secrets there, out of version control
 
 Unknown placeholders stay verbatim. Dynamic variables are computed fresh on
 each use:
