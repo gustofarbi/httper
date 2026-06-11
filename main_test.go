@@ -157,3 +157,14 @@ func TestLoadEnvWithoutPrivateFile(t *testing.T) {
 	require.NotNil(t, environment)
 	assert.Equal(t, "public.example", environment["host"])
 }
+
+func TestVarFlags(t *testing.T) {
+	v := make(varFlags)
+
+	require.NoError(t, v.Set("host=example.com"))
+	require.NoError(t, v.Set("token=a=b")) // value may contain '='
+	assert.Equal(t, varFlags{"host": "example.com", "token": "a=b"}, v)
+
+	assert.Error(t, v.Set("missing-separator"))
+	assert.Error(t, v.Set("=value"))
+}

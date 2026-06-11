@@ -12,6 +12,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -349,7 +350,7 @@ func TestE2EInsecureTLS(t *testing.T) {
 		runner := &Runner{
 			// Deliberately NOT srv.Client(): a plain client must reject the
 			// test server's self-signed cert unless -insecure is set.
-			Client: newHTTPClient(nil, insecure),
+			Client: newHTTPClient(nil, insecure, 30*time.Second),
 			Out:    new(bytes.Buffer),
 			Config: Config{Insecure: insecure},
 		}
@@ -374,4 +375,63 @@ func TestE2EInsecureTLS(t *testing.T) {
 		assert.Equal(t, 200, result.StatusCode)
 		assert.Contains(t, string(result.Body), "Protocol: HTTP/2.0")
 	})
+}
+
+func TestE2ETimeoutPrecedence(t *testing.T) {
+	srv := newTestServer(t)
+
+	send := func(t *testing.T, clientTimeout time.Duration, content string) *Result {
+		t.Helper()
+		content = strings.ReplaceAll(content, fixtureHost, srv.URL)
+		httpFile, err := request.ParseFile(content)
+		require.NoError(t, err)
+		require.Len(t, httpFile.Templates, 1)
+
+		req, err := httpFile.Templates[0].Build(func(s string) string { return s }, "")
+		require.NoError(t, err)
+
+		client := srv.Client()
+		client.Timeout = clientTimeout
+		runner := &Runner{Client: client, Out: new(bytes.Buffer), Config: Config{}}
+		return runner.Send(httpFile.Templates[0], req)
+	}
+
+	t.Run("global timeout cuts off a slow response", func(t *testing.T) {
+		result := send(t, 50*time.Millisecond, "GET "+fixtureHost+"/slow?ms=500")
+		assert.Error(t, result.Err)
+	})
+
+	t.Run("@timeout directive overrides the global timeout", func(t *testing.T) {
+		result := send(t, 50*time.Millisecond, "# @timeout 2\nGET "+fixtureHost+"/slow?ms=500")
+		require.NoError(t, result.Err)
+		assert.Equal(t, 200, result.StatusCode)
+	})
+}
+
+func TestE2ECLIVars(t *testing.T) {
+	srv := newTestServer(t)
+
+	content := strings.ReplaceAll(
+		"@p = from-file\n"+
+			"< {% request.variables.set(\"q\", \"from-script\") %}\n"+
+			"GET "+fixtureHost+"/?query&p={{p}}&q={{q}}",
+		fixtureHost, srv.URL,
+	)
+
+	httpFile, err := request.ParseFile(content)
+	require.NoError(t, err)
+
+	globals := vars.NewGlobals()
+	store := vars.NewStore(nil, httpFile.Vars, globals)
+	store.SetCLI(map[string]string{"p": "from-cli", "q": "from-cli"})
+
+	buf := new(bytes.Buffer)
+	runner := &Runner{Client: srv.Client(), Out: buf, Config: Config{}}
+	engine := &script.Engine{Globals: globals, Out: buf}
+
+	executeTemplates(runner, httpFile.Templates, store, engine, "", nil, nil)
+
+	out := buf.String()
+	assert.Contains(t, out, "p: [from-cli]", "-var beats @vars")
+	assert.Contains(t, out, "q: [from-script]", "pre-script local beats -var")
 }

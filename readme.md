@@ -19,6 +19,8 @@ httper [flags] <file.http>
 | `-save` | Save responses to `.idea/httpRequests/` |
 | `-strict` | Treat non-2xx responses as failures |
 | `-insecure` | Skip TLS certificate verification (self-signed certs) |
+| `-timeout <seconds>` | Request timeout, default 30 (`# @timeout` wins per request) |
+| `-var key=value` | Set a variable (repeatable; overrides `@vars` and env file) |
 | `-v` | Verbose output (response headers, PASS lines, debug logs) |
 | `-version` | Print version and exit |
 
@@ -95,8 +97,10 @@ Authorization: Bearer {{token}}
 
 1. Request-local variables set in a pre-request script (`request.variables.set`)
 2. `client.global` values set by handler scripts
-3. In-file `@name = value` definitions
-4. Env file values (`-env-file` + `-env`); a private sibling file
+3. `-var key=value` CLI flags (above file-declared values, below runtime ones
+   so chaining keeps working)
+4. In-file `@name = value` definitions
+5. Env file values (`-env-file` + `-env`); a private sibling file
    (`http-client.private.env.json` next to `http-client.env.json`) overlays
    the public one key-wise — keep secrets there, out of version control
 
