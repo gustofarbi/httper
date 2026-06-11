@@ -111,11 +111,6 @@ func getFiles(bodyRaw, wd string) (io.Reader, error) {
 	lines := strings.Split(bodyRaw, "\n")
 	files := make([]io.Reader, 0, len(lines))
 
-	root, err := os.OpenRoot(wd)
-	if err != nil {
-		return nil, fmt.Errorf("opening root: %w", err)
-	}
-
 	for i, line := range lines {
 		if !strings.HasPrefix(line, "< ") {
 			continue
@@ -127,13 +122,12 @@ func getFiles(bodyRaw, wd string) (io.Reader, error) {
 			continue
 		}
 
-		// root is rooted at wd, so OpenFile needs the path relative to it.
-		f, err := root.OpenFile(filename, os.O_RDONLY, 0)
+		content, err := readIncludeFile(wd, filename)
 		if err != nil {
-			return nil, fmt.Errorf("opening file %s: %w", path.Join(wd, filename), err)
+			return nil, err
 		}
 
-		files = append(files, f)
+		files = append(files, bytes.NewReader(content))
 
 		if i != len(lines)-1 {
 			files = append(files, strings.NewReader("\n"))
@@ -145,6 +139,24 @@ func getFiles(bodyRaw, wd string) (io.Reader, error) {
 	}
 
 	return io.MultiReader(files...), nil
+}
+
+// readIncludeFile reads one `< file` include into memory, sandboxed to wd via
+// os.Root: the path is relative to wd and `..` traversal is rejected.
+func readIncludeFile(wd, filename string) ([]byte, error) {
+	root, err := os.OpenRoot(wd)
+	if err != nil {
+		return nil, fmt.Errorf("opening root: %w", err)
+	}
+	defer func() { _ = root.Close() }()
+
+	f, err := root.OpenFile(filename, os.O_RDONLY, 0)
+	if err != nil {
+		return nil, fmt.Errorf("opening file %s: %w", path.Join(wd, filename), err)
+	}
+	defer func() { _ = f.Close() }()
+
+	return io.ReadAll(f)
 }
 
 func getDispositionParts(disposition string) (name, filename string) {

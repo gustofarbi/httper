@@ -3,6 +3,7 @@ package request
 import (
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -202,6 +203,45 @@ func TestCreate(t *testing.T) {
 			},
 		},
 		{
+			name: "whole-body file include",
+			wd:   testdataDir,
+			content: "POST https://localhost:8080/raw\n" +
+				"Content-Type: application/json\n\n" +
+				"< include.txt",
+			check: func(t *testing.T, reqs []*http.Request) {
+				require.Len(t, reqs, 1)
+				body, err := io.ReadAll(reqs[0].Body)
+				require.NoError(t, err)
+				assert.Contains(t, string(body), "included file contents")
+			},
+		},
+		{
+			name: "whole-body include without content type",
+			wd:   testdataDir,
+			content: "POST https://localhost:8080/raw\n\n" +
+				"< include.txt",
+			check: func(t *testing.T, reqs []*http.Request) {
+				require.Len(t, reqs, 1)
+				body, err := io.ReadAll(reqs[0].Body)
+				require.NoError(t, err)
+				assert.Contains(t, string(body), "included file contents")
+			},
+		},
+		{
+			name: "whole-body include missing file errors",
+			wd:   testdataDir,
+			content: "POST https://localhost:8080/raw\n\n" +
+				"< nope.txt",
+			wantErr: true,
+		},
+		{
+			name: "whole-body include rejects traversal",
+			wd:   testdataDir,
+			content: "POST https://localhost:8080/raw\n\n" +
+				"< ../makefile",
+			wantErr: true,
+		},
+		{
 			name: "missing include file errors",
 			wd:   testdataDir,
 			content: "POST https://localhost:8080/form-data\n" +
@@ -225,4 +265,21 @@ func TestCreate(t *testing.T) {
 			tt.check(t, reqs)
 		})
 	}
+}
+
+// The include path resolves like any other body text: Build substitutes
+// placeholders before parseBody sees the `< file` line.
+func TestWholeBodyIncludeResolvesPlaceholders(t *testing.T) {
+	file, err := ParseFile("POST https://localhost:8080/raw\n\n< {{payloadFile}}")
+	require.NoError(t, err)
+	require.Len(t, file.Templates, 1)
+
+	req, err := file.Templates[0].Build(func(s string) string {
+		return strings.ReplaceAll(s, "{{payloadFile}}", "include.txt")
+	}, testdataDir)
+	require.NoError(t, err)
+
+	body, err := io.ReadAll(req.Body)
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "included file contents")
 }

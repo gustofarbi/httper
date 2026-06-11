@@ -67,6 +67,9 @@ Authorization: Bearer {{token}}
   `multipart/form-data` (with `< filename` file includes),
   `application/x-www-form-urlencoded` (pairs may span multiple lines), and
   any other content type sent verbatim (`text/plain`, XML, …)
+- Whole-body file include: a body of just `< ./payload.json` sends that
+  file's contents (any content type; path sandboxed to the `.http` file's
+  directory, placeholders in the path resolve first)
 - HTTP/2 and HTTP/2 (Prior Knowledge)
 - Bearer auth (header passthrough) and Basic auth
   (`Authorization: Basic user password` is base64-encoded automatically)
