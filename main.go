@@ -44,6 +44,11 @@ var (
 		"",
 		"run only requests with these names (comma-separated)",
 	)
+	strict = flag.Bool(
+		"strict",
+		false,
+		"treat non-2xx responses as failures",
+	)
 )
 
 // Config holds the runtime options derived from CLI flags.
@@ -63,9 +68,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := run(cfg, flag.Arg(0)); err != nil {
+	report, err := run(cfg, flag.Arg(0))
+	if err != nil {
 		slog.Error("running http", "err", err)
 		os.Exit(1)
+	}
+
+	// Exit 2 distinguishes "requests ran but tests/sends failed" from usage
+	// and I/O errors (exit 1).
+	if report.Failed() {
+		os.Exit(2)
 	}
 }
 
@@ -90,32 +102,32 @@ func validateInput() error {
 	return nil
 }
 
-func run(cfg Config, input string) error {
+func run(cfg Config, input string) (Report, error) {
 	dir := filepath.Dir(input)
 
 	inputRoot, err := os.OpenRoot(dir)
 	if err != nil {
-		return fmt.Errorf("cannot open root: %w", err)
+		return Report{}, fmt.Errorf("cannot open root: %w", err)
 	}
 	defer func() { _ = inputRoot.Close() }()
 
 	// inputRoot is rooted at dir, so open the file by its base name relative to it.
 	file, err := inputRoot.OpenFile(filepath.Base(input), os.O_RDONLY, 0)
 	if err != nil {
-		return fmt.Errorf("cannot open file at %s: %w", input, err)
+		return Report{}, fmt.Errorf("cannot open file at %s: %w", input, err)
 	}
 	defer func() { _ = file.Close() }()
 
 	contentRaw, err := io.ReadAll(file)
 	if err != nil {
-		return fmt.Errorf("cannot read file at %s: %w", input, err)
+		return Report{}, fmt.Errorf("cannot read file at %s: %w", input, err)
 	}
 
 	// Cookie jar on by default so chained requests share cookies (login →
 	// authenticated follow-up); `# @no-cookie-jar` opts a request out.
 	jar, err := cookiejar.New(nil)
 	if err != nil {
-		return fmt.Errorf("creating cookie jar: %w", err)
+		return Report{}, fmt.Errorf("creating cookie jar: %w", err)
 	}
 
 	client := &http.Client{
@@ -132,12 +144,12 @@ func run(cfg Config, input string) error {
 
 	httpFile, err := request.ParseFile(string(contentRaw))
 	if err != nil {
-		return fmt.Errorf("cannot parse input file: %w", err)
+		return Report{}, fmt.Errorf("cannot parse input file: %w", err)
 	}
 
 	templates, err := filterTemplates(httpFile.Templates, *names)
 	if err != nil {
-		return err
+		return Report{}, err
 	}
 
 	globals := vars.NewGlobals()
@@ -145,19 +157,19 @@ func run(cfg Config, input string) error {
 
 	if len(httpFile.Templates) == 0 {
 		slog.Warn("no requests found in the input file")
-		return nil
+		return Report{}, nil
 	}
 
 	// Responses are saved under the current working directory; open the root
 	// once and reuse it across every request instead of per-request.
 	wd, err := os.Getwd()
 	if err != nil {
-		return fmt.Errorf("cannot get working directory: %w", err)
+		return Report{}, fmt.Errorf("cannot get working directory: %w", err)
 	}
 
 	saveRoot, err := os.OpenRoot(wd)
 	if err != nil {
-		return fmt.Errorf("cannot open save root: %w", err)
+		return Report{}, fmt.Errorf("cannot open save root: %w", err)
 	}
 	defer func() { _ = saveRoot.Close() }()
 
@@ -187,9 +199,12 @@ func run(cfg Config, input string) error {
 		return string(code), nil
 	}
 
-	executeTemplates(runner, templates, store, engine, dir, loadScript)
+	results := executeTemplates(runner, templates, store, engine, dir, loadScript)
 
-	return nil
+	report := buildReport(results, *strict)
+	printReport(os.Stdout, results, report, cfg.Verbose)
+
+	return report, nil
 }
 
 // filterTemplates keeps only templates whose name is in the comma-separated

@@ -34,6 +34,14 @@ func newTestServer(t *testing.T) *httptest.Server {
 // through the real Runner against srv, returning the combined output.
 func runContent(t *testing.T, srv *httptest.Server, content, wd string) string {
 	t.Helper()
+	_, out := runResults(t, srv, content, wd)
+	return out
+}
+
+// runResults is runContent but also returns the per-request results for
+// report assertions.
+func runResults(t *testing.T, srv *httptest.Server, content, wd string) ([]*Result, string) {
+	t.Helper()
 
 	content = strings.ReplaceAll(content, fixtureHost, srv.URL)
 
@@ -78,8 +86,8 @@ func runContent(t *testing.T, srv *httptest.Server, content, wd string) string {
 		}
 	}
 
-	executeTemplates(runner, httpFile.Templates, store, engine, wd, loadScript)
-	return buf.String()
+	results := executeTemplates(runner, httpFile.Templates, store, engine, wd, loadScript)
+	return results, buf.String()
 }
 
 func runFixture(t *testing.T, srv *httptest.Server, name string) string {
@@ -224,6 +232,30 @@ func TestE2EFixtures(t *testing.T) {
 		// HTTP/2 proto, so it cannot trust the test cert. Proto parsing itself
 		// is covered by request.TestCreate ("explicit HTTP/2 proto").
 		t.Skip("HTTP/2 prior knowledge not supported by in-process httptest server")
+	})
+}
+
+func TestE2EReport(t *testing.T) {
+	srv := newTestServer(t)
+
+	t.Run("failing client.test reaches the report", func(t *testing.T) {
+		content := "GET " + fixtureHost + "/redirect\n\n" +
+			"> {% client.test(\"must fail\", function() { client.assert(false, \"nope\"); }); %}"
+
+		results, _ := runResults(t, srv, content, "")
+		report := buildReport(results, false)
+
+		assert.Equal(t, 1, report.Requests)
+		assert.Equal(t, 1, report.Tests)
+		assert.Equal(t, 1, report.FailedTests)
+		assert.True(t, report.Failed())
+	})
+
+	t.Run("strict flags non-2xx", func(t *testing.T) {
+		results, _ := runResults(t, srv, "GET "+fixtureHost+"/need-cookie", "")
+
+		assert.False(t, buildReport(results, false).Failed())
+		assert.True(t, buildReport(results, true).Failed())
 	})
 }
 
