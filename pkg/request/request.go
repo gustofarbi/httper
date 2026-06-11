@@ -77,7 +77,10 @@ func splitRequest(content string) (essentials, headers, body string) {
 
 func parse(content, wd string) (*http.Request, error) {
 	essentialsRaw, headersRaw, bodyRaw := splitRequest(content)
+	return buildRequest(essentialsRaw, headersRaw, bodyRaw, wd)
+}
 
+func buildRequest(essentialsRaw, headersRaw, bodyRaw, wd string) (*http.Request, error) {
 	headers := parseHeaders(headersRaw)
 	body, err := parseBody(
 		headers.Get("Content-Type"),

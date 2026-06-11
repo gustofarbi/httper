@@ -102,24 +102,24 @@ func run(cfg Config, input string) error {
 		return fmt.Errorf("cannot read file at %s: %w", input, err)
 	}
 
-	content := string(contentRaw)
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 	}
 
+	resolve := func(s string) string { return s }
 	if *environment != "" {
 		envMap := loadEnv(*envFile, *environment)
 		if envMap != nil {
-			content = envMap.Replace(content)
+			resolve = envMap.Replace
 		}
 	}
 
-	httpRequests, err := request.Create(content, dir)
+	httpFile, err := request.ParseFile(string(contentRaw))
 	if err != nil {
-		return fmt.Errorf("cannot create basic httpRequest: %w", err)
+		return fmt.Errorf("cannot parse input file: %w", err)
 	}
 
-	if len(httpRequests) == 0 {
+	if len(httpFile.Templates) == 0 {
 		slog.Warn("no requests found in the input file")
 		return nil
 	}
@@ -144,8 +144,15 @@ func run(cfg Config, input string) error {
 		SaveRoot: saveRoot,
 	}
 
-	for i, httpRequest := range httpRequests {
-		slog.Debug("sending request", "number", i+1, "total", len(httpRequests))
+	for i, template := range httpFile.Templates {
+		slog.Debug("sending request", "number", i+1, "total", len(httpFile.Templates))
+
+		httpRequest, err := template.Build(resolve, dir)
+		if err != nil {
+			slog.Error("building request", "err", err, "number", i+1)
+			continue
+		}
+
 		runner.Send(httpRequest)
 	}
 
