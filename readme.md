@@ -8,8 +8,13 @@ A CLI runner for `.http` files (JetBrains HTTP Client format).
 ## Usage
 
 ```bash
-httper [flags] <file.http>
+httper [flags] <file.http> [more.http ...]
 ```
+
+Multiple files (or shell/quoted globs like `'requests/*.http'`) run in one
+invocation with an aggregated report and exit code. Files are isolated —
+fresh cookie jar and `client.global` state per file — so results never depend
+on argument order.
 
 | Flag | Description |
 |------|-------------|

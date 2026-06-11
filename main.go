@@ -130,9 +130,20 @@ func main() {
 		os.Exit(1)
 	}
 
-	report, err := run(cfg, flag.Arg(0))
+	inputs, err := expandInputs(flag.Args())
+	if err != nil {
+		slog.Error("validating input", "err", err)
+		os.Exit(1)
+	}
+
+	report, suites, err := run(cfg, inputs, os.Stdout)
 	if err != nil {
 		slog.Error("running http", "err", err)
+		os.Exit(1)
+	}
+
+	if err := writeReportFiles(suites, report, *reportJUnit, *reportJSON); err != nil {
+		slog.Error("writing report files", "err", err)
 		os.Exit(1)
 	}
 
@@ -144,13 +155,8 @@ func main() {
 }
 
 func validateInput() error {
-	input := flag.Arg(0)
-	if input == "" {
-		return errors.New("1st arg must be input file")
-	}
-
-	if _, err := os.Stat(input); err != nil {
-		return fmt.Errorf("cannot stat file at %s", input)
+	if len(flag.Args()) == 0 {
+		return errors.New("at least one input file is required")
 	}
 
 	if *envFile != "" {
@@ -159,41 +165,36 @@ func validateInput() error {
 		}
 	}
 
-	slog.Debug("input file", "name", input)
-
 	return nil
 }
 
-func run(cfg Config, input string) (Report, error) {
-	dir := filepath.Dir(input)
-
-	inputRoot, err := os.OpenRoot(dir)
-	if err != nil {
-		return Report{}, fmt.Errorf("cannot open root: %w", err)
-	}
-	defer func() { _ = inputRoot.Close() }()
-
-	// inputRoot is rooted at dir, so open the file by its base name relative to it.
-	file, err := inputRoot.OpenFile(filepath.Base(input), os.O_RDONLY, 0)
-	if err != nil {
-		return Report{}, fmt.Errorf("cannot open file at %s: %w", input, err)
-	}
-	defer func() { _ = file.Close() }()
-
-	contentRaw, err := io.ReadAll(file)
-	if err != nil {
-		return Report{}, fmt.Errorf("cannot read file at %s: %w", input, err)
+// expandInputs glob-expands every argument (a plain existing filename matches
+// itself); an argument matching nothing is an error rather than a silent skip.
+func expandInputs(args []string) ([]string, error) {
+	if len(args) == 0 {
+		return nil, errors.New("at least one input file is required")
 	}
 
-	// Cookie jar on by default so chained requests share cookies (login →
-	// authenticated follow-up); `# @no-cookie-jar` opts a request out.
-	jar, err := cookiejar.New(nil)
-	if err != nil {
-		return Report{}, fmt.Errorf("creating cookie jar: %w", err)
+	var inputs []string
+	for _, arg := range args {
+		matches, err := filepath.Glob(arg)
+		if err != nil {
+			return nil, fmt.Errorf("bad pattern %q: %w", arg, err)
+		}
+		if len(matches) == 0 {
+			return nil, fmt.Errorf("no files match %q", arg)
+		}
+		inputs = append(inputs, matches...)
 	}
 
-	client := newHTTPClient(jar, cfg.Insecure, time.Duration(*timeout)*time.Second)
+	return inputs, nil
+}
 
+// run executes every input file independently and aggregates one report.
+// Files are isolated on purpose — fresh cookie jar, globals, and store per
+// file — so results never depend on argument or glob order. Shared across
+// files: env-file values, -var overrides, and the save root.
+func run(cfg Config, inputs []string, out io.Writer) (Report, []Suite, error) {
 	envVars := make(map[string]string)
 	if *environment != "" {
 		for key, value := range loadEnv(*envFile, *environment) {
@@ -201,46 +202,100 @@ func run(cfg Config, input string) (Report, error) {
 		}
 	}
 
+	// Responses are saved under the current working directory; open the root
+	// once and reuse it across every request instead of per-request.
+	wd, err := os.Getwd()
+	if err != nil {
+		return Report{}, nil, fmt.Errorf("cannot get working directory: %w", err)
+	}
+
+	saveRoot, err := os.OpenRoot(wd)
+	if err != nil {
+		return Report{}, nil, fmt.Errorf("cannot open save root: %w", err)
+	}
+	defer func() { _ = saveRoot.Close() }()
+
+	var suites []Suite
+	var all []*Result
+
+	for _, input := range inputs {
+		if len(inputs) > 1 {
+			_, _ = fmt.Fprintf(out, "=== %s\n", input)
+		}
+
+		results, err := runFile(cfg, input, envVars, saveRoot, out)
+		if err != nil {
+			return Report{}, nil, err
+		}
+
+		suites = append(suites, Suite{Name: filepath.Base(input), Results: results})
+		all = append(all, results...)
+	}
+
+	report := buildReport(all, *strict)
+	printReport(out, all, report, cfg.Verbose)
+
+	return report, suites, nil
+}
+
+// runFile executes one .http file with fresh per-file state.
+func runFile(cfg Config, input string, envVars map[string]string, saveRoot *os.Root, out io.Writer) ([]*Result, error) {
+	dir := filepath.Dir(input)
+
+	inputRoot, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, fmt.Errorf("cannot open root: %w", err)
+	}
+	defer func() { _ = inputRoot.Close() }()
+
+	// inputRoot is rooted at dir, so open the file by its base name relative to it.
+	file, err := inputRoot.OpenFile(filepath.Base(input), os.O_RDONLY, 0)
+	if err != nil {
+		return nil, fmt.Errorf("cannot open file at %s: %w", input, err)
+	}
+	defer func() { _ = file.Close() }()
+
+	contentRaw, err := io.ReadAll(file)
+	if err != nil {
+		return nil, fmt.Errorf("cannot read file at %s: %w", input, err)
+	}
+
+	// Cookie jar on by default so chained requests share cookies (login →
+	// authenticated follow-up); `# @no-cookie-jar` opts a request out.
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating cookie jar: %w", err)
+	}
+
+	client := newHTTPClient(jar, cfg.Insecure, time.Duration(*timeout)*time.Second)
+
 	httpFile, err := request.ParseFile(string(contentRaw))
 	if err != nil {
-		return Report{}, fmt.Errorf("cannot parse input file: %w", err)
+		return nil, fmt.Errorf("cannot parse input file: %w", err)
+	}
+
+	if len(httpFile.Templates) == 0 {
+		slog.Warn("no requests found in the input file", "file", input)
+		return nil, nil
 	}
 
 	templates, err := filterTemplates(httpFile.Templates, *names)
 	if err != nil {
-		return Report{}, err
+		return nil, err
 	}
 
 	globals := vars.NewGlobals()
 	store := vars.NewStore(envVars, httpFile.Vars, globals)
 	store.SetCLI(cliVars)
 
-	if len(httpFile.Templates) == 0 {
-		slog.Warn("no requests found in the input file")
-		return Report{}, nil
-	}
-
-	// Responses are saved under the current working directory; open the root
-	// once and reuse it across every request instead of per-request.
-	wd, err := os.Getwd()
-	if err != nil {
-		return Report{}, fmt.Errorf("cannot get working directory: %w", err)
-	}
-
-	saveRoot, err := os.OpenRoot(wd)
-	if err != nil {
-		return Report{}, fmt.Errorf("cannot open save root: %w", err)
-	}
-	defer func() { _ = saveRoot.Close() }()
-
 	runner := &Runner{
 		Client:   client,
-		Out:      os.Stdout,
+		Out:      out,
 		Config:   cfg,
 		SaveRoot: saveRoot,
 	}
 
-	engine := &script.Engine{Globals: globals, Out: os.Stdout}
+	engine := &script.Engine{Globals: globals, Out: out}
 
 	loadScript := func(path string) (string, error) {
 		// inputRoot is rooted at the .http file's dir, so handler script paths
@@ -259,17 +314,7 @@ func run(cfg Config, input string) (Report, error) {
 		return string(code), nil
 	}
 
-	results := executeTemplates(runner, templates, store, engine, dir, envVars, loadScript)
-
-	report := buildReport(results, *strict)
-	printReport(os.Stdout, results, report, cfg.Verbose)
-
-	suites := []Suite{{Name: filepath.Base(input), Results: results}}
-	if err := writeReportFiles(suites, report, *reportJUnit, *reportJSON); err != nil {
-		return Report{}, fmt.Errorf("writing report files: %w", err)
-	}
-
-	return report, nil
+	return executeTemplates(runner, templates, store, engine, dir, envVars, loadScript), nil
 }
 
 // newHTTPClient builds the base client; insecure swaps in a cloned transport

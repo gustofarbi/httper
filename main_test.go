@@ -168,3 +168,37 @@ func TestVarFlags(t *testing.T) {
 	assert.Error(t, v.Set("missing-separator"))
 	assert.Error(t, v.Set("=value"))
 }
+
+func TestExpandInputs(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.http", "b.http", "c.txt"} {
+		require.NoError(t, os.WriteFile(dir+"/"+name, []byte("GET https://x/"), 0o600))
+	}
+
+	t.Run("plain filenames pass through", func(t *testing.T) {
+		got, err := expandInputs([]string{dir + "/a.http", dir + "/b.http"})
+		require.NoError(t, err)
+		assert.Equal(t, []string{dir + "/a.http", dir + "/b.http"}, got)
+	})
+
+	t.Run("glob expands", func(t *testing.T) {
+		got, err := expandInputs([]string{dir + "/*.http"})
+		require.NoError(t, err)
+		assert.Equal(t, []string{dir + "/a.http", dir + "/b.http"}, got)
+	})
+
+	t.Run("no match errors", func(t *testing.T) {
+		_, err := expandInputs([]string{dir + "/*.nope"})
+		assert.Error(t, err)
+	})
+
+	t.Run("missing file errors", func(t *testing.T) {
+		_, err := expandInputs([]string{dir + "/ghost.http"})
+		assert.Error(t, err)
+	})
+
+	t.Run("no args errors", func(t *testing.T) {
+		_, err := expandInputs(nil)
+		assert.Error(t, err)
+	})
+}

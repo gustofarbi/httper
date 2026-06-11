@@ -435,3 +435,35 @@ func TestE2ECLIVars(t *testing.T) {
 	assert.Contains(t, out, "p: [from-cli]", "-var beats @vars")
 	assert.Contains(t, out, "q: [from-script]", "pre-script local beats -var")
 }
+
+// Multi-file runs must be order-independent: cookie jar, client.global, and
+// request-local state reset per file.
+func TestE2EMultiFileIsolation(t *testing.T) {
+	srv := newTestServer(t)
+	dir := t.TempDir()
+
+	file1 := dir + "/first.http"
+	require.NoError(t, os.WriteFile(file1, []byte(
+		"GET "+srv.URL+"/set-cookie\n\n"+
+			"> {% client.global.set(\"token\", \"42069\"); %}\n"), 0o600))
+
+	file2 := dir + "/second.http"
+	require.NoError(t, os.WriteFile(file2, []byte(
+		"GET "+srv.URL+"/need-cookie\n"+
+			"###\n"+
+			"GET "+srv.URL+"/bearer\n"+
+			"Authorization: Bearer {{token}}\n"), 0o600))
+
+	buf := new(bytes.Buffer)
+	report, suites, err := run(Config{Insecure: true}, []string{file1, file2}, buf)
+	require.NoError(t, err)
+
+	assert.Equal(t, 3, report.Requests, "aggregate count spans both files")
+	require.Len(t, suites, 2)
+	assert.Equal(t, "first.http", suites[0].Name)
+	assert.Equal(t, "second.http", suites[1].Name)
+
+	require.Len(t, suites[1].Results, 2)
+	assert.Equal(t, 401, suites[1].Results[0].StatusCode, "cookie must not leak across files")
+	assert.Equal(t, 403, suites[1].Results[1].StatusCode, "globals must not leak across files")
+}
