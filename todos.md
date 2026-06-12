@@ -1,8 +1,8 @@
-- parsing
-- printing result
-- saving result
+- [x] parsing
+- [x] printing result
+- [x] saving result
 
 optionals:
 - vegeta
 - websocket
-- grpc
+- [x] grpc (unary + server-streaming, reflection-based)

@@ -19,7 +19,8 @@ func (r Report) Failed() bool {
 }
 
 // buildReport tallies results. With strict set, a request whose final status
-// is outside 2xx counts as an error even without a failing test.
+// is outside 2xx (HTTP) or non-OK (gRPC) counts as an error even without a
+// failing test.
 func buildReport(results []*Result, strict bool) Report {
 	report := Report{Requests: len(results)}
 
@@ -34,7 +35,9 @@ func buildReport(results []*Result, strict bool) Report {
 		switch {
 		case result.Err != nil:
 			report.Errors++
-		case strict && (result.StatusCode < 200 || result.StatusCode > 299):
+		case strict && result.GRPC && result.StatusCode != 0:
+			report.Errors++
+		case strict && !result.GRPC && (result.StatusCode < 200 || result.StatusCode > 299):
 			report.Errors++
 		}
 	}

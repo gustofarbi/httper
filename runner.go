@@ -36,6 +36,9 @@ type Result struct {
 	Header     http.Header
 	Body       []byte
 	Tests      []script.TestResult
+	// GRPC marks StatusCode as a gRPC status code (0 = OK) rather than an
+	// HTTP status.
+	GRPC bool
 }
 
 // clientFor copies the base client and applies per-request directives. The

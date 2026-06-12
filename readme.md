@@ -149,6 +149,42 @@ time.
 `client.test` results feed the run report and exit code; `client.global.set`
 in one request resolves `{{placeholders}}` in later ones (request chaining).
 
+### gRPC
+
+`GRPC` request lines execute real gRPC calls (unary and server-streaming):
+
+```http
+### say-hello
+GRPC grpc://localhost:8081/helloworld.Greeter/SayHello
+X-Token: secret
+
+{"name": "world"}
+
+> {%
+client.test("greets", function() {
+  client.assert(response.status === 0, "expected OK");
+});
+%}
+```
+
+- Target syntax: `[grpc://|grpcs://]host[:port]/package.Service/Method`.
+  `grpc://` forces plaintext, `grpcs://` TLS; a bare host defaults to TLS
+  except loopback hosts (`localhost`, `127.0.0.1`, `::1`). A missing port
+  defaults to 443 (TLS) / 80 (plaintext). `-insecure` skips TLS verification.
+- The message schema is resolved via [server
+  reflection](https://grpc.io/docs/guides/reflection/) — the server must have
+  it enabled; no `.proto` files are read.
+- The JSON body becomes the request message; headers become metadata verbatim
+  (no Basic-auth encoding; HTTP-only names like `Content-Type` and reserved
+  `grpc-*` names are dropped).
+- `response.status` is the gRPC status code (`0` = OK), `response.body` the
+  response message as JSON (an array of messages for server streams), and
+  `response.headers` the merged header + trailer metadata. `-strict` treats
+  any non-OK status as a failure.
+- `# @timeout` caps the whole call including reflection; `# @no-log` and
+  `-save` work as for HTTP.
+- Not supported: client/bidirectional streaming and `< file` body includes.
+
 ### Runs
 
 - Cookie jar shared across all requests in one run (login → authenticated
@@ -165,7 +201,8 @@ in one request resolves `{{placeholders}}` in later ones (request chaining).
 
 ### Not supported
 
-- gRPC, WebSocket, GraphQL execution (request lines parse, but nothing is sent)
+- WebSocket and GraphQL execution (request lines parse, but nothing is sent)
+- gRPC client/bidirectional streaming
 - `>> file` response redirects (ignored with a warning)
 
 ## Installation

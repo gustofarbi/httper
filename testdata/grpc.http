@@ -1,0 +1,37 @@
+### grpc-echo
+GRPC grpc://localhost:8081/grpcecho.EchoService/Echo
+X-Token: fixture-token
+
+{"message": "hello from fixture"}
+
+> {%
+client.test("echo replies with message and metadata", function() {
+  client.assert(response.status === 0, "expected OK status, got " + response.status);
+  client.assert(response.body.message === "hello from fixture", "body mismatch");
+  client.assert(response.body.metadata["x-token"] === "fixture-token", "metadata not echoed");
+  client.assert(response.headers.valueOf("x-echo-header") === "header-value", "missing response metadata");
+});
+%}
+
+### grpc-countdown
+GRPC grpc://localhost:8081/grpcecho.EchoService/Countdown
+
+{"count": 3}
+
+> {%
+client.test("countdown streams three messages", function() {
+  client.assert(response.body.length === 3, "expected 3 messages, got " + response.body.length);
+  client.assert(response.body[0].value === 3, "stream starts at 3");
+});
+%}
+
+### grpc-fail
+GRPC grpc://localhost:8081/grpcecho.EchoService/Fail
+
+{"code": 5, "message": "intentionally not found"}
+
+> {%
+client.test("fail returns NOT_FOUND", function() {
+  client.assert(response.status === 5, "expected status 5, got " + response.status);
+});
+%}
