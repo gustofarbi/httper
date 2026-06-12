@@ -12,8 +12,10 @@ import (
 )
 
 const (
-	address     = ":8080"
-	grpcAddress = ":8081"
+	address = ":8080"
+	// Loopback only: this is a local test fixture, no need to listen on all
+	// interfaces.
+	grpcAddress = "localhost:8081"
 )
 
 func main() {

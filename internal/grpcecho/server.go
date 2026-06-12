@@ -52,6 +52,7 @@ func (*service) Fail(_ context.Context, request *FailRequest) (*EchoResponse, er
 		message = "requested failure"
 	}
 
+	// #nosec G115 -- test fixture; the code value comes from the test's own request
 	return nil, status.Error(codes.Code(request.Code), message)
 }
 

@@ -22,9 +22,9 @@ import (
 
 // Options carries the per-request knobs for Invoke.
 type Options struct {
-	Insecure  bool                // skip TLS verification on TLS targets
-	Timeout   time.Duration       // whole-call deadline including reflection; 0 = none
-	Metadata  metadata.MD         // outgoing request metadata
+	Insecure  bool                 // skip TLS verification on TLS targets
+	Timeout   time.Duration        // whole-call deadline including reflection; 0 = none
+	Metadata  metadata.MD          // outgoing request metadata
 	OnMessage func(message []byte) // called with each response message's JSON as it arrives
 }
 
