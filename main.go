@@ -59,12 +59,18 @@ var (
 		false,
 		"treat non-2xx responses as failures",
 	)
+	insecure = flag.Bool(
+		"insecure",
+		false,
+		"skip TLS certificate verification",
+	)
 )
 
 // Config holds the runtime options derived from CLI flags.
 type Config struct {
-	Save    bool
-	Verbose bool
+	Save     bool
+	Verbose  bool
+	Insecure bool
 }
 
 func versionString() string {
@@ -79,7 +85,7 @@ func main() {
 		return
 	}
 
-	cfg := Config{Save: *save, Verbose: *verbose}
+	cfg := Config{Save: *save, Verbose: *verbose, Insecure: *insecure}
 	initLogger(cfg.Verbose)
 
 	if err := validateInput(); err != nil {
@@ -149,10 +155,7 @@ func run(cfg Config, input string) (Report, error) {
 		return Report{}, fmt.Errorf("creating cookie jar: %w", err)
 	}
 
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-		Jar:     jar,
-	}
+	client := newHTTPClient(jar, cfg.Insecure)
 
 	envVars := make(map[string]string)
 	if *environment != "" {
@@ -224,6 +227,24 @@ func run(cfg Config, input string) (Report, error) {
 	printReport(os.Stdout, results, report, cfg.Verbose)
 
 	return report, nil
+}
+
+// newHTTPClient builds the base client; insecure swaps in a cloned transport
+// that skips TLS verification (the h2 prior-knowledge transport gets the same
+// treatment in Runner.clientFor).
+func newHTTPClient(jar http.CookieJar, insecure bool) *http.Client {
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		Jar:     jar,
+	}
+
+	if insecure {
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = insecureTLSConfig(true)
+		client.Transport = transport
+	}
+
+	return client
 }
 
 // filterTemplates keeps only templates whose name is in the comma-separated

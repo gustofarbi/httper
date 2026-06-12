@@ -18,6 +18,7 @@ httper [flags] <file.http>
 | `-name <a,b>` | Run only the named requests (comma-separated) |
 | `-save` | Save responses to `.idea/httpRequests/` |
 | `-strict` | Treat non-2xx responses as failures |
+| `-insecure` | Skip TLS certificate verification (self-signed certs) |
 | `-v` | Verbose output (response headers, PASS lines, debug logs) |
 | `-version` | Print version and exit |
 

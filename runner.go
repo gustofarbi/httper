@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"fmt"
 	"httper/pkg/finalize"
 	"httper/pkg/request"
@@ -39,9 +40,9 @@ type Result struct {
 
 // clientFor copies the base client and applies per-request directives. The
 // copy shares the base transport unless the request needs HTTP/2 prior
-// knowledge, which requires an explicit h2 transport.
-func clientFor(base *http.Client, directives request.Directives, proto string) *http.Client {
-	client := *base
+// knowledge, which requires an explicit h2 transport (honoring -insecure).
+func (r *Runner) clientFor(directives request.Directives, proto string) *http.Client {
+	client := *r.Client
 
 	if directives.Timeout > 0 {
 		client.Timeout = directives.Timeout
@@ -55,10 +56,21 @@ func clientFor(base *http.Client, directives request.Directives, proto string) *
 		client.Jar = nil
 	}
 	if strings.HasPrefix(proto, "HTTP/2") {
-		client.Transport = &http2.Transport{}
+		client.Transport = &http2.Transport{TLSClientConfig: insecureTLSConfig(r.Config.Insecure)}
 	}
 
 	return &client
+}
+
+// insecureTLSConfig returns a verification-skipping TLS config when insecure
+// is set, nil otherwise (nil keeps the transport's secure default).
+func insecureTLSConfig(insecure bool) *tls.Config {
+	if !insecure {
+		return nil
+	}
+
+	// #nosec G402 -- explicit user opt-in via the -insecure flag
+	return &tls.Config{InsecureSkipVerify: true}
 }
 
 func (r *Runner) Send(template *request.Template, httpRequest *http.Request) *Result {
@@ -66,7 +78,7 @@ func (r *Runner) Send(template *request.Template, httpRequest *http.Request) *Re
 
 	_, _ = fmt.Fprintln(r.Out, httpRequest.URL)
 
-	client := clientFor(r.Client, template.Directives, httpRequest.Proto)
+	client := r.clientFor(template.Directives, httpRequest.Proto)
 
 	start := time.Now()
 	response, err := client.Do(httpRequest)
