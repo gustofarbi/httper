@@ -35,3 +35,35 @@ func Parse(root *os.Root, path string) (EnvironmentMap, error) {
 
 	return result, nil
 }
+
+// Merge overlays private onto public per environment, key-wise: private
+// values win (the JetBrains http-client.private.env.json convention). Inputs
+// are left untouched.
+func Merge(public, private EnvironmentMap) EnvironmentMap {
+	if public == nil {
+		return private
+	}
+	if private == nil {
+		return public
+	}
+
+	merged := make(EnvironmentMap, len(public))
+	for name, environment := range public {
+		copied := make(Environment, len(environment))
+		for k, v := range environment {
+			copied[k] = v
+		}
+		merged[name] = copied
+	}
+
+	for name, environment := range private {
+		if _, ok := merged[name]; !ok {
+			merged[name] = make(Environment, len(environment))
+		}
+		for k, v := range environment {
+			merged[name][k] = v
+		}
+	}
+
+	return merged
+}

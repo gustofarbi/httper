@@ -41,3 +41,27 @@ func TestParseErrors(t *testing.T) {
 		assert.Error(t, err)
 	})
 }
+
+func TestMerge(t *testing.T) {
+	public := EnvironmentMap{
+		"dev":  {"host": "dev.example", "token": "public"},
+		"prod": {"host": "prod.example"},
+	}
+	private := EnvironmentMap{
+		"dev":   {"token": "secret"},
+		"stage": {"host": "stage.example"},
+	}
+
+	merged := Merge(public, private)
+
+	assert.Equal(t, "dev.example", merged.Get("dev")["host"])
+	assert.Equal(t, "secret", merged.Get("dev")["token"], "private overrides public")
+	assert.Equal(t, "prod.example", merged.Get("prod")["host"])
+	assert.Equal(t, "stage.example", merged.Get("stage")["host"], "private-only env survives")
+
+	assert.Equal(t, "public", public.Get("dev")["token"], "inputs unchanged")
+
+	assert.Nil(t, Merge(nil, nil))
+	assert.Equal(t, public, Merge(public, nil))
+	assert.Equal(t, private, Merge(nil, private))
+}
