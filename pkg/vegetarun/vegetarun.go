@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"httper/pkg/request"
+	"github.com/gustofarbi/httper/pkg/request"
 
 	vegeta "github.com/tsenart/vegeta/v12/lib"
 )

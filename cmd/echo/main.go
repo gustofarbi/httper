@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
-	"httper/internal/echo/handler"
-	"httper/internal/grpcecho"
+	"github.com/gustofarbi/httper/internal/echo/handler"
+	"github.com/gustofarbi/httper/internal/grpcecho"
 	"net"
 	"net/http"
 	"os"

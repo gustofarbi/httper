@@ -2,9 +2,9 @@ package main
 
 import (
 	"errors"
-	"httper/pkg/request"
-	"httper/pkg/script"
-	"httper/pkg/vars"
+	"github.com/gustofarbi/httper/pkg/request"
+	"github.com/gustofarbi/httper/pkg/script"
+	"github.com/gustofarbi/httper/pkg/vars"
 	"log/slog"
 )
 

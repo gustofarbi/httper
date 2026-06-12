@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"httper/pkg/request"
+	"github.com/gustofarbi/httper/pkg/request"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

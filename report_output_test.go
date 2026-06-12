@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"httper/pkg/script"
+	"github.com/gustofarbi/httper/pkg/script"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
