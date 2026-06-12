@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package grpcecho;
+
+option go_package = "httper/internal/grpcecho";
+
+// EchoService is the gRPC counterpart of internal/echo/handler: one method
+// per test scenario, shared by cmd/echo and the in-process e2e tests.
+service EchoService {
+  // Echo returns the message plus the incoming request metadata, and sets a
+  // response header and trailer so metadata assertions are possible.
+  rpc Echo(EchoRequest) returns (EchoResponse);
+  // Fail returns the gRPC status code given in the request.
+  rpc Fail(FailRequest) returns (EchoResponse);
+  // Countdown streams count messages from count down to 1.
+  rpc Countdown(CountdownRequest) returns (stream CountdownResponse);
+  // Collect exists only to exercise client-streaming rejection.
+  rpc Collect(stream EchoRequest) returns (EchoResponse);
+}
+
+message EchoRequest {
+  string message = 1;
+}
+
+message EchoResponse {
+  string message = 1;
+  map<string, string> metadata = 2;
+}
+
+message FailRequest {
+  int32 code = 1;
+  string message = 2;
+}
+
+message CountdownRequest {
+  int32 count = 1;
+}
+
+message CountdownResponse {
+  int32 value = 1;
+}

@@ -6,6 +6,12 @@ mkcert:
 echo-server:
 	go run ./cmd/echo
 
+# Regenerates internal/grpcecho/*.pb.go from echo.proto. Needs protoc-gen-go
+# and protoc-gen-go-grpc on PATH (go install google.golang.org/protobuf/cmd/protoc-gen-go
+# google.golang.org/grpc/cmd/protoc-gen-go-grpc); buf itself runs via go run.
+proto:
+	cd internal/grpcecho && go run github.com/bufbuild/buf/cmd/buf@v1.50.0 generate
+
 test:
 	go test -v ./...
 
