@@ -1,0 +1,3 @@
+# @name attack
+# @vegeta rate=20/s duration=300ms max-body=4096
+GET https://localhost:8080/anything?probe=vegeta

@@ -28,6 +28,7 @@ on argument order.
 | `-var key=value` | Set a variable (repeatable; overrides `@vars` and env file) |
 | `-report-junit <path>` | Write a JUnit XML report (CI test integration) |
 | `-report-json <path>` | Write a JSON report |
+| `-vegeta` | Run `# @vegeta`-marked requests as load tests |
 | `-v` | Verbose output (response headers, PASS lines, debug logs) |
 | `-version` | Print version and exit |
 
@@ -96,6 +97,7 @@ Authorization: Bearer {{token}}
 | `# @timeout <seconds>` | Override the 30s default timeout |
 | `# @no-cookie-jar` | Opt this request out of the shared cookie jar |
 | `# @no-log` | Print only the status line for this response |
+| `# @vegeta [params]` | Declare a load profile for this request (see Load testing) |
 
 ### Variables
 
@@ -184,6 +186,45 @@ client.test("greets", function() {
 - `# @timeout` caps the whole call including reflection; `# @no-log` and
   `-save` work as for HTTP.
 - Not supported: client/bidirectional streaming and `< file` body includes.
+
+### Load testing (vegeta)
+
+With the `-vegeta` flag, requests marked `# @vegeta` are attacked via the
+[vegeta](https://github.com/tsenart/vegeta) library instead of being sent
+once; without the flag they run as normal single requests, so a file can be
+exercised in CI and load-tested with the same content.
+
+```http
+### login runs once; its token feeds the attack
+# @name login
+POST https://example.com/api/login
+Content-Type: application/json
+
+{"user": "admin", "password": "{{password}}"}
+
+> {% client.global.set("token", response.body.token); %}
+
+### attacked at 100 req/s for 30s
+# @vegeta rate=100/s duration=30s
+GET https://example.com/api/profile
+Authorization: Bearer {{token}}
+```
+
+- Params (all optional): `rate=N/s|N/m` (default `50/s`), `duration` (Go
+  duration, default `10s`), `workers`, `max-workers`, `connections`,
+  `max-body` (response bytes read per shot). Invalid values are warned about
+  and fall back to the defaults.
+- The pre-request script runs once and placeholders resolve once; the frozen
+  request is attacked. Response handler scripts and `client.test` are skipped
+  (there is no single response).
+- Output is vegeta's text report (latencies p50/p95/p99, success ratio,
+  status code histogram); `# @no-log` prints a one-line summary instead.
+- Any failing shot (non-2xx or transport error) marks the request as errored
+  → exit code 2. `-strict` adds nothing for attacked requests.
+- `# @timeout` and `# @no-redirect` apply to every shot; `-insecure` works as
+  for HTTP. Requests run through the shared HTTP client's cookie jar only for
+  normal sends — the attacker has no jar.
+- `GRPC` requests cannot be attacked.
 
 ### Runs
 

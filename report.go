@@ -35,6 +35,8 @@ func buildReport(results []*Result, strict bool) Report {
 		switch {
 		case result.Err != nil:
 			report.Errors++
+		case result.Vegeta:
+			// Failing shots are already encoded in Err; StatusCode is unused.
 		case strict && result.GRPC && result.StatusCode != 0:
 			report.Errors++
 		case strict && !result.GRPC && (result.StatusCode < 200 || result.StatusCode > 299):

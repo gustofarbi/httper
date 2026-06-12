@@ -79,6 +79,11 @@ var (
 		"",
 		"write a JSON report to this path",
 	)
+	vegetaFlag = flag.Bool(
+		"vegeta",
+		false,
+		"run @vegeta-marked requests as load tests",
+	)
 	cliVars = make(varFlags)
 )
 
@@ -302,6 +307,17 @@ func runFile(cfg Config, input string, envVars map[string]string, saveRoot *os.R
 		Timeout:  time.Duration(*timeout) * time.Second,
 	}
 
+	// nil keeps @vegeta-marked requests running as normal single requests;
+	// the -vegeta flag arms the attacks.
+	var vegetaRunner *VegetaRunner
+	if *vegetaFlag {
+		vegetaRunner = &VegetaRunner{
+			Out:     out,
+			Config:  cfg,
+			Timeout: time.Duration(*timeout) * time.Second,
+		}
+	}
+
 	engine := &script.Engine{Globals: globals, Out: out}
 
 	loadScript := func(path string) (string, error) {
@@ -321,7 +337,7 @@ func runFile(cfg Config, input string, envVars map[string]string, saveRoot *os.R
 		return string(code), nil
 	}
 
-	return executeTemplates(runner, grpcRunner, templates, store, engine, dir, envVars, loadScript), nil
+	return executeTemplates(runner, grpcRunner, vegetaRunner, templates, store, engine, dir, envVars, loadScript), nil
 }
 
 // newHTTPClient builds the base client; insecure swaps in a cloned transport
