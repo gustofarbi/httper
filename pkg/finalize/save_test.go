@@ -29,10 +29,7 @@ func TestSaveResponse(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = root.Close() }()
 
-	header := http.Header{"Content-Type": []string{"application/json"}}
-	resp := &http.Response{StatusCode: http.StatusOK, Header: header}
-
-	require.NoError(t, saveResponse(root, resp, []byte(`{"a":1}`)))
+	require.NoError(t, saveResponse(root, http.StatusOK, "application/json", []byte(`{"a":1}`)))
 
 	want := filepath.Join(tmp, ".idea", "httpRequests", "2024-01-02T150405.000000000.200.json")
 	data, err := os.ReadFile(want)
@@ -42,20 +39,17 @@ func TestSaveResponse(t *testing.T) {
 
 func TestGetExtension(t *testing.T) {
 	t.Run("sniffed from body", func(t *testing.T) {
-		resp := &http.Response{Header: http.Header{}}
-		assert.Equal(t, ".json", getExtension(resp, []byte(`{"a":1}`)))
+		assert.Equal(t, ".json", getExtension("", []byte(`{"a":1}`)))
 	})
 
 	t.Run("fallback to content-type header", func(t *testing.T) {
 		// A body mimetype cannot detect falls back to the Content-Type header
 		// (reverse-sorted, so text/html resolves to .shtml).
-		resp := &http.Response{Header: http.Header{"Content-Type": []string{"text/html"}}}
-		ext := getExtension(resp, []byte("\x00\x01\x02not-detectable"))
+		ext := getExtension("text/html", []byte("\x00\x01\x02not-detectable"))
 		assert.True(t, strings.HasSuffix(ext, "html"), "got %q", ext)
 	})
 
 	t.Run("fallback to .txt when nothing matches", func(t *testing.T) {
-		resp := &http.Response{Header: http.Header{}}
-		assert.Equal(t, ".txt", getExtension(resp, []byte("\x00\x01\x02not-detectable")))
+		assert.Equal(t, ".txt", getExtension("", []byte("\x00\x01\x02not-detectable")))
 	})
 }

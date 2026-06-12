@@ -3,24 +3,24 @@ package finalize
 import (
 	"errors"
 	"fmt"
-	"github.com/gabriel-vasile/mimetype"
 	"mime"
-	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"time"
+
+	"github.com/gabriel-vasile/mimetype"
 )
 
-func saveResponse(root *os.Root, response *http.Response, body []byte) error {
+func saveResponse(root *os.Root, statusCode int, contentType string, body []byte) error {
 	prefix, err := getFilePrefix(root)
 	if err != nil {
 		return fmt.Errorf("getting file prefix: %w", err)
 	}
 
-	extension := getExtension(response, body)
+	extension := getExtension(contentType, body)
 
-	filePath := filepath.Join(prefix, getFilename(response.StatusCode, extension))
+	filePath := filepath.Join(prefix, getFilename(statusCode, extension))
 	file, err := root.OpenFile(filePath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
 	if err != nil {
 		return fmt.Errorf("creating file: %w", err)
@@ -54,12 +54,12 @@ func getFilePrefix(root *os.Root) (string, error) {
 	return prefixDir, nil
 }
 
-func getExtension(response *http.Response, body []byte) string {
+func getExtension(contentType string, body []byte) string {
 	if ext := mimetype.Detect(body).Extension(); ext != "" {
 		return ext
 	}
 
-	exts, err := mime.ExtensionsByType(response.Header.Get("Content-Type"))
+	exts, err := mime.ExtensionsByType(contentType)
 	if err == nil && len(exts) > 0 {
 		sort.Sort(sort.Reverse(sort.StringSlice(exts)))
 		return exts[0]
