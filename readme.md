@@ -8,8 +8,13 @@ A CLI runner for `.http` files (JetBrains HTTP Client format).
 ## Usage
 
 ```bash
-httper [flags] <file.http>
+httper [flags] <file.http> [more.http ...]
 ```
+
+Multiple files (or shell/quoted globs like `'requests/*.http'`) run in one
+invocation with an aggregated report and exit code. Files are isolated —
+fresh cookie jar and `client.global` state per file — so results never depend
+on argument order.
 
 | Flag | Description |
 |------|-------------|
@@ -18,6 +23,11 @@ httper [flags] <file.http>
 | `-name <a,b>` | Run only the named requests (comma-separated) |
 | `-save` | Save responses to `.idea/httpRequests/` |
 | `-strict` | Treat non-2xx responses as failures |
+| `-insecure` | Skip TLS certificate verification (self-signed certs) |
+| `-timeout <seconds>` | Request timeout, default 30 (`# @timeout` wins per request) |
+| `-var key=value` | Set a variable (repeatable; overrides `@vars` and env file) |
+| `-report-junit <path>` | Write a JUnit XML report (CI test integration) |
+| `-report-json <path>` | Write a JSON report |
 | `-v` | Verbose output (response headers, PASS lines, debug logs) |
 | `-version` | Print version and exit |
 
@@ -67,6 +77,9 @@ Authorization: Bearer {{token}}
   `multipart/form-data` (with `< filename` file includes),
   `application/x-www-form-urlencoded` (pairs may span multiple lines), and
   any other content type sent verbatim (`text/plain`, XML, …)
+- Whole-body file include: a body of just `< ./payload.json` sends that
+  file's contents (any content type; path sandboxed to the `.http` file's
+  directory, placeholders in the path resolve first)
 - HTTP/2 and HTTP/2 (Prior Knowledge)
 - Bearer auth (header passthrough) and Basic auth
   (`Authorization: Basic user password` is base64-encoded automatically)
@@ -91,18 +104,26 @@ Authorization: Bearer {{token}}
 
 1. Request-local variables set in a pre-request script (`request.variables.set`)
 2. `client.global` values set by handler scripts
-3. In-file `@name = value` definitions
-4. Env file values (`-env-file` + `-env`)
+3. `-var key=value` CLI flags (above file-declared values, below runtime ones
+   so chaining keeps working)
+4. In-file `@name = value` definitions
+5. Env file values (`-env-file` + `-env`); a private sibling file
+   (`http-client.private.env.json` next to `http-client.env.json`) overlays
+   the public one key-wise — keep secrets there, out of version control
 
 Unknown placeholders stay verbatim. Dynamic variables are computed fresh on
 each use:
 
 | Variable | Value |
 |----------|-------|
-| `{{$uuid}}` | Random UUID v4 |
+| `{{$uuid}}` / `{{$random.uuid}}` | Random UUID v4 |
 | `{{$timestamp}}` | Unix timestamp (seconds) |
 | `{{$isoTimestamp}}` | ISO-8601 / RFC 3339 UTC timestamp |
 | `{{$randomInt}}` | Random integer 0–1000 |
+| `{{$random.integer(from, to)}}` | Random integer, `from` inclusive to `to` exclusive |
+| `{{$random.alphabetic(length)}}` | Random letters |
+| `{{$random.email}}` | Random email address |
+| `{{$env.NAME}}` | OS environment variable (empty + warning when unset) |
 
 ### Scripts
 
@@ -117,8 +138,13 @@ Available API:
 | Object | Available in | Members |
 |--------|--------------|---------|
 | `client` | both | `test(name, fn)` (response handlers only), `assert(cond, message)`, `log(...args)`, `global.set(name, value)`, `global.get(name)` |
-| `request.variables` | pre-request | `set(name, value)`, `get(name)` |
+| `crypto` | both | `sha256(s)`, `sha1(s)`, `md5(s)`, `hmac.sha256(key, data)` / `.sha1` / `.md5` — hex strings |
+| `request` | pre-request | `variables.set/get`, `method()`, `url()` / `body()` (each with `getRaw()` and `tryGetSubstituted()`), `headers.all()` / `headers.findByName(name)` (header objects with `name()`, `getRawValue()`, `tryGetSubstituted()`), `environment.get(name)` (env-file values) |
 | `response` | response handlers | `status`, `body` (JSON bodies parsed into objects), `headers.valueOf(name)`, `headers.valuesOf(name)`, `contentType.mimeType`, `contentType.charset` |
+
+Pre-request scripts see the request *as written* (placeholders intact) via
+`getRaw()`; `tryGetSubstituted()` resolves with the variables known at call
+time.
 
 `client.test` results feed the run report and exit code; `client.global.set`
 in one request resolves `{{placeholders}}` in later ones (request chaining).
@@ -127,7 +153,9 @@ in one request resolves `{{placeholders}}` in later ones (request chaining).
 
 - Cookie jar shared across all requests in one run (login → authenticated
   follow-up works out of the box); opt out per request with `# @no-cookie-jar`
-- Test report summary with CI-friendly exit codes
+- Test report summary with CI-friendly exit codes; `-report-junit` /
+  `-report-json` write machine-readable reports (one testcase per
+  `client.test`, send errors as `<error>` entries)
 - `-save` writes each response body to
   `.idea/httpRequests/<timestamp>.<status>.<ext>` under the working directory,
   with the extension sniffed from the body content

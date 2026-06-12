@@ -1,6 +1,7 @@
 package request
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"log/slog"
@@ -10,6 +11,18 @@ import (
 	"slices"
 	"strings"
 )
+
+// includePath reports whether the body consists solely of one `< file`
+// include line, returning the file path.
+func includePath(body string) (string, bool) {
+	trimmed := strings.TrimSpace(body)
+	if !strings.HasPrefix(trimmed, "< ") || strings.ContainsRune(trimmed, '\n') {
+		return "", false
+	}
+
+	filename := strings.TrimSpace(trimmed[len("< "):])
+	return filename, filename != ""
+}
 
 var (
 	methods = []string{
@@ -66,6 +79,51 @@ func buildRequest(essentialsRaw, headersRaw, bodyRaw, wd string) (*http.Request,
 	transferHeaders(request, headers)
 
 	return request, nil
+}
+
+// SplitEssentials splits a raw request line into method, URL, and protocol
+// without parsing the URL, so {{placeholders}} stay intact. The method
+// defaults to GET like parseEssentials.
+func SplitEssentials(essentialsRaw string) (method, rawURL, proto string) {
+	for _, part := range strings.Split(essentialsRaw, " ") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+
+		if method == "" && parseMethod(part) != "" {
+			method = part
+			continue
+		}
+		if proto == "" && parseProto(part) != "" {
+			proto = part
+			continue
+		}
+		if rawURL == "" {
+			rawURL = part
+		}
+	}
+
+	if method == "" {
+		method = http.MethodGet
+	}
+
+	return
+}
+
+// HeaderPairs splits raw header lines into name/value pairs, preserving the
+// raw (unresolved) values and the order they appear in.
+func HeaderPairs(headersRaw string) [][2]string {
+	var pairs [][2]string
+	for _, line := range strings.Split(headersRaw, "\n") {
+		key, value, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		pairs = append(pairs, [2]string{strings.TrimSpace(key), strings.TrimSpace(value)})
+	}
+
+	return pairs
 }
 
 func parseEssentials(essentialsRaw string) (
@@ -158,6 +216,17 @@ func transferHeaders(request *http.Request, headers textproto.MIMEHeader) {
 func parseBody(contentType, body, wd string) (io.Reader, error) {
 	if body == "" {
 		return nil, nil
+	}
+
+	// A body that is a single `< file` line includes that file verbatim,
+	// regardless of content type (matching the JetBrains client). Multipart
+	// per-part includes never match: their bodies span multiple lines.
+	if filename, ok := includePath(body); ok {
+		content, err := readIncludeFile(wd, filename)
+		if err != nil {
+			return nil, fmt.Errorf("reading body include: %w", err)
+		}
+		return bytes.NewReader(content), nil
 	}
 
 	contentType, boundary := splitContentType(contentType)

@@ -7,6 +7,7 @@ package vars
 import (
 	"io"
 	"log/slog"
+	"os"
 	"regexp"
 	"time"
 )
@@ -32,14 +33,17 @@ func (g *Globals) Get(key string) (string, bool) {
 	return v, ok
 }
 
-// Store resolves placeholders against the layered variable sources. Now and
-// Rand back the dynamic variables and are injectable for deterministic tests.
+// Store resolves placeholders against the layered variable sources. Now,
+// Rand, and Getenv back the dynamic variables and are injectable for
+// deterministic tests.
 type Store struct {
-	Now  func() time.Time
-	Rand io.Reader
+	Now    func() time.Time
+	Rand   io.Reader
+	Getenv func(string) string
 
 	local   map[string]string
 	globals *Globals
+	cli     map[string]string
 	file    map[string]string
 	env     map[string]string
 }
@@ -48,11 +52,20 @@ func NewStore(env, file map[string]string, globals *Globals) *Store {
 	return &Store{
 		Now:     time.Now,
 		Rand:    defaultRand,
+		Getenv:  os.Getenv,
 		local:   make(map[string]string),
 		globals: globals,
 		file:    file,
 		env:     env,
 	}
+}
+
+// SetCLI installs -var flag values. They beat everything declared in files
+// (@vars, env file) but lose to runtime-produced values (pre-script locals,
+// client.global chaining) so a constant CLI override can't silently break
+// request chaining.
+func (s *Store) SetCLI(cli map[string]string) {
+	s.cli = cli
 }
 
 // SetLocal sets a request-local variable (highest precedence). Local
@@ -88,6 +101,9 @@ func (s *Store) lookup(key string) (string, bool) {
 		return v, true
 	}
 	if v, ok := s.globals.Get(key); ok {
+		return v, true
+	}
+	if v, ok := s.cli[key]; ok {
 		return v, true
 	}
 	if v, ok := s.file[key]; ok {

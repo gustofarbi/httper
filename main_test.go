@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"os"
 	"testing"
 
 	"httper/pkg/request"
@@ -108,6 +109,96 @@ func TestFilterTemplates(t *testing.T) {
 
 	t.Run("no match errors", func(t *testing.T) {
 		_, err := filterTemplates(templates, "nope")
+		assert.Error(t, err)
+	})
+}
+
+func TestPrivateEnvName(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"http-client.env.json", "http-client.private.env.json"},
+		{"foo.env.json", "foo.private.env.json"},
+		{"custom.json", "custom.private.json"},
+		{"http-client.private.env.json", ""},
+		{"nope.yaml", ""},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, privateEnvName(tt.in), tt.in)
+	}
+}
+
+func TestLoadEnvPrivateOverlay(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(
+		dir+"/http-client.env.json",
+		[]byte(`{"dev": {"host": "public.example", "token": "public"}}`),
+		0o600,
+	))
+	require.NoError(t, os.WriteFile(
+		dir+"/http-client.private.env.json",
+		[]byte(`{"dev": {"token": "secret"}}`),
+		0o600,
+	))
+
+	environment := loadEnv(dir+"/http-client.env.json", "dev")
+	require.NotNil(t, environment)
+	assert.Equal(t, "public.example", environment["host"])
+	assert.Equal(t, "secret", environment["token"], "private file overrides public")
+}
+
+func TestLoadEnvWithoutPrivateFile(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(
+		dir+"/http-client.env.json",
+		[]byte(`{"dev": {"host": "public.example"}}`),
+		0o600,
+	))
+
+	environment := loadEnv(dir+"/http-client.env.json", "dev")
+	require.NotNil(t, environment)
+	assert.Equal(t, "public.example", environment["host"])
+}
+
+func TestVarFlags(t *testing.T) {
+	v := make(varFlags)
+
+	require.NoError(t, v.Set("host=example.com"))
+	require.NoError(t, v.Set("token=a=b")) // value may contain '='
+	assert.Equal(t, varFlags{"host": "example.com", "token": "a=b"}, v)
+
+	assert.Error(t, v.Set("missing-separator"))
+	assert.Error(t, v.Set("=value"))
+}
+
+func TestExpandInputs(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.http", "b.http", "c.txt"} {
+		require.NoError(t, os.WriteFile(dir+"/"+name, []byte("GET https://x/"), 0o600))
+	}
+
+	t.Run("plain filenames pass through", func(t *testing.T) {
+		got, err := expandInputs([]string{dir + "/a.http", dir + "/b.http"})
+		require.NoError(t, err)
+		assert.Equal(t, []string{dir + "/a.http", dir + "/b.http"}, got)
+	})
+
+	t.Run("glob expands", func(t *testing.T) {
+		got, err := expandInputs([]string{dir + "/*.http"})
+		require.NoError(t, err)
+		assert.Equal(t, []string{dir + "/a.http", dir + "/b.http"}, got)
+	})
+
+	t.Run("no match errors", func(t *testing.T) {
+		_, err := expandInputs([]string{dir + "/*.nope"})
+		assert.Error(t, err)
+	})
+
+	t.Run("missing file errors", func(t *testing.T) {
+		_, err := expandInputs([]string{dir + "/ghost.http"})
+		assert.Error(t, err)
+	})
+
+	t.Run("no args errors", func(t *testing.T) {
+		_, err := expandInputs(nil)
 		assert.Error(t, err)
 	})
 }

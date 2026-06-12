@@ -12,6 +12,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -86,7 +87,7 @@ func runResults(t *testing.T, srv *httptest.Server, content, wd string) ([]*Resu
 		}
 	}
 
-	results := executeTemplates(runner, httpFile.Templates, store, engine, wd, loadScript)
+	results := executeTemplates(runner, httpFile.Templates, store, engine, wd, nil, loadScript)
 	return results, buf.String()
 }
 
@@ -218,6 +219,19 @@ func TestE2EFixtures(t *testing.T) {
 		assert.Contains(t, out, "param1")
 	})
 
+	t.Run("pre-request script reads request and computes a signature", func(t *testing.T) {
+		content := "< {%\n" +
+			"    request.variables.set(\"sig\", crypto.sha256(request.method() + request.url().getRaw()));\n" +
+			"%}\n" +
+			"POST " + fixtureHost + "/raw\n" +
+			"Content-Type: text/plain\n\n" +
+			"sig={{sig}}"
+
+		out := runContent(t, srv, content, "")
+		assert.Contains(t, out, "200 OK")
+		assert.Regexp(t, `sig=[0-9a-f]{64}`, out)
+	})
+
 	t.Run("handler script loaded from file", func(t *testing.T) {
 		content := "GET " + fixtureHost + "/redirect\n\n" +
 			"> check.js"
@@ -246,6 +260,16 @@ func TestE2EFixtures(t *testing.T) {
 		out := runContent(t, srv, content, "")
 		assert.Contains(t, out, "200 OK")
 		assert.Contains(t, out, "text/plain: hello raw")
+	})
+
+	t.Run("whole-body file include", func(t *testing.T) {
+		content := "POST " + fixtureHost + "/raw\n" +
+			"Content-Type: text/plain\n\n" +
+			"< include.txt"
+
+		out := runContent(t, srv, content, "testdata")
+		assert.Contains(t, out, "200 OK")
+		assert.Contains(t, out, "included file contents")
 	})
 
 	t.Run("http2 prior knowledge", func(t *testing.T) {
@@ -308,4 +332,138 @@ func TestE2ESavesResponse(t *testing.T) {
 	entries, err := os.ReadDir(tmp + "/.idea/httpRequests")
 	require.NoError(t, err)
 	assert.NotEmpty(t, entries, "expected a saved response file")
+}
+
+func TestE2EInsecureTLS(t *testing.T) {
+	srv := newTestServer(t)
+
+	send := func(t *testing.T, insecure bool, line string) *Result {
+		t.Helper()
+		content := strings.ReplaceAll(line, fixtureHost, srv.URL)
+		httpFile, err := request.ParseFile(content)
+		require.NoError(t, err)
+		require.Len(t, httpFile.Templates, 1)
+
+		req, err := httpFile.Templates[0].Build(func(s string) string { return s }, "")
+		require.NoError(t, err)
+
+		runner := &Runner{
+			// Deliberately NOT srv.Client(): a plain client must reject the
+			// test server's self-signed cert unless -insecure is set.
+			Client: newHTTPClient(nil, insecure, 30*time.Second),
+			Out:    new(bytes.Buffer),
+			Config: Config{Insecure: insecure},
+		}
+		return runner.Send(httpFile.Templates[0], req)
+	}
+
+	t.Run("self-signed cert rejected by default", func(t *testing.T) {
+		result := send(t, false, "GET "+fixtureHost+"/redirected")
+		require.Error(t, result.Err)
+		assert.Contains(t, result.Err.Error(), "certificate")
+	})
+
+	t.Run("insecure skips verification", func(t *testing.T) {
+		result := send(t, true, "GET "+fixtureHost+"/redirected")
+		require.NoError(t, result.Err)
+		assert.Equal(t, 200, result.StatusCode)
+	})
+
+	t.Run("http2 prior knowledge works under insecure", func(t *testing.T) {
+		result := send(t, true, "GET "+fixtureHost+"/http2 HTTP/2")
+		require.NoError(t, result.Err)
+		assert.Equal(t, 200, result.StatusCode)
+		assert.Contains(t, string(result.Body), "Protocol: HTTP/2.0")
+	})
+}
+
+func TestE2ETimeoutPrecedence(t *testing.T) {
+	srv := newTestServer(t)
+
+	send := func(t *testing.T, clientTimeout time.Duration, content string) *Result {
+		t.Helper()
+		content = strings.ReplaceAll(content, fixtureHost, srv.URL)
+		httpFile, err := request.ParseFile(content)
+		require.NoError(t, err)
+		require.Len(t, httpFile.Templates, 1)
+
+		req, err := httpFile.Templates[0].Build(func(s string) string { return s }, "")
+		require.NoError(t, err)
+
+		client := srv.Client()
+		client.Timeout = clientTimeout
+		runner := &Runner{Client: client, Out: new(bytes.Buffer), Config: Config{}}
+		return runner.Send(httpFile.Templates[0], req)
+	}
+
+	t.Run("global timeout cuts off a slow response", func(t *testing.T) {
+		result := send(t, 50*time.Millisecond, "GET "+fixtureHost+"/slow?ms=500")
+		assert.Error(t, result.Err)
+	})
+
+	t.Run("@timeout directive overrides the global timeout", func(t *testing.T) {
+		result := send(t, 50*time.Millisecond, "# @timeout 2\nGET "+fixtureHost+"/slow?ms=500")
+		require.NoError(t, result.Err)
+		assert.Equal(t, 200, result.StatusCode)
+	})
+}
+
+func TestE2ECLIVars(t *testing.T) {
+	srv := newTestServer(t)
+
+	content := strings.ReplaceAll(
+		"@p = from-file\n"+
+			"< {% request.variables.set(\"q\", \"from-script\") %}\n"+
+			"GET "+fixtureHost+"/?query&p={{p}}&q={{q}}",
+		fixtureHost, srv.URL,
+	)
+
+	httpFile, err := request.ParseFile(content)
+	require.NoError(t, err)
+
+	globals := vars.NewGlobals()
+	store := vars.NewStore(nil, httpFile.Vars, globals)
+	store.SetCLI(map[string]string{"p": "from-cli", "q": "from-cli"})
+
+	buf := new(bytes.Buffer)
+	runner := &Runner{Client: srv.Client(), Out: buf, Config: Config{}}
+	engine := &script.Engine{Globals: globals, Out: buf}
+
+	executeTemplates(runner, httpFile.Templates, store, engine, "", nil, nil)
+
+	out := buf.String()
+	assert.Contains(t, out, "p: [from-cli]", "-var beats @vars")
+	assert.Contains(t, out, "q: [from-script]", "pre-script local beats -var")
+}
+
+// Multi-file runs must be order-independent: cookie jar, client.global, and
+// request-local state reset per file.
+func TestE2EMultiFileIsolation(t *testing.T) {
+	srv := newTestServer(t)
+	dir := t.TempDir()
+
+	file1 := dir + "/first.http"
+	require.NoError(t, os.WriteFile(file1, []byte(
+		"GET "+srv.URL+"/set-cookie\n\n"+
+			"> {% client.global.set(\"token\", \"42069\"); %}\n"), 0o600))
+
+	file2 := dir + "/second.http"
+	require.NoError(t, os.WriteFile(file2, []byte(
+		"GET "+srv.URL+"/need-cookie\n"+
+			"###\n"+
+			"GET "+srv.URL+"/bearer\n"+
+			"Authorization: Bearer {{token}}\n"), 0o600))
+
+	buf := new(bytes.Buffer)
+	report, suites, err := run(Config{Insecure: true}, []string{file1, file2}, buf)
+	require.NoError(t, err)
+
+	assert.Equal(t, 3, report.Requests, "aggregate count spans both files")
+	require.Len(t, suites, 2)
+	assert.Equal(t, "first.http", suites[0].Name)
+	assert.Equal(t, "second.http", suites[1].Name)
+
+	require.Len(t, suites[1].Results, 2)
+	assert.Equal(t, 401, suites[1].Results[0].StatusCode, "cookie must not leak across files")
+	assert.Equal(t, 403, suites[1].Results[1].StatusCode, "globals must not leak across files")
 }
