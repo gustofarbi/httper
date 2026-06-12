@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"httper/pkg/vars"
+	"github.com/gustofarbi/httper/pkg/vars"
 
 	"github.com/dop251/goja"
 )

@@ -3,9 +3,9 @@ package main
 import (
 	"crypto/tls"
 	"fmt"
-	"httper/pkg/finalize"
-	"httper/pkg/request"
-	"httper/pkg/script"
+	"github.com/gustofarbi/httper/pkg/finalize"
+	"github.com/gustofarbi/httper/pkg/request"
+	"github.com/gustofarbi/httper/pkg/script"
 	"io"
 	"log/slog"
 	"net/http"

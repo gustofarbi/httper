@@ -251,6 +251,12 @@ Authorization: Bearer {{token}}
 Prebuilt binaries for linux/macos/windows (amd64, arm64) are on the
 [releases page](https://github.com/gustofarbi/httper/releases).
 
+Or install with Go:
+
+```bash
+go install github.com/gustofarbi/httper@latest
+```
+
 Or build from source:
 
 ```bash

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"httper/pkg/vars"
+	"github.com/gustofarbi/httper/pkg/vars"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

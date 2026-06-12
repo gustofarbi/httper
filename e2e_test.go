@@ -2,10 +2,10 @@ package main
 
 import (
 	"bytes"
-	"httper/internal/echo/handler"
-	"httper/pkg/request"
-	"httper/pkg/script"
-	"httper/pkg/vars"
+	"github.com/gustofarbi/httper/internal/echo/handler"
+	"github.com/gustofarbi/httper/pkg/request"
+	"github.com/gustofarbi/httper/pkg/script"
+	"github.com/gustofarbi/httper/pkg/vars"
 	"io"
 	"net/http"
 	"net/http/cookiejar"

@@ -1,4 +1,4 @@
-module httper
+module github.com/gustofarbi/httper
 
 go 1.25.0
 

@@ -6,8 +6,8 @@ import (
 	"os"
 	"testing"
 
-	"httper/pkg/request"
-	"httper/pkg/script"
+	"github.com/gustofarbi/httper/pkg/request"
+	"github.com/gustofarbi/httper/pkg/script"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
