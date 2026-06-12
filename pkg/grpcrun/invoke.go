@@ -36,7 +36,10 @@ type Outcome struct {
 	Header   metadata.MD
 	Trailer  metadata.MD
 	Messages [][]byte // response messages as compact JSON
-	Duration time.Duration
+	// Streaming marks a server-streaming method, where Messages is a stream
+	// rather than the single unary response.
+	Streaming bool
+	Duration  time.Duration
 }
 
 // Invoke dials the target, resolves the method via server reflection, sends
@@ -78,6 +81,8 @@ func Invoke(ctx context.Context, target Target, bodyJSON string, opts Options) (
 	marshal := protojson.MarshalOptions{Resolver: resolver}
 	ctx = metadata.NewOutgoingContext(ctx, opts.Metadata)
 	outcome := &Outcome{}
+
+	outcome.Streaming = method.IsStreamingServer()
 
 	start := time.Now()
 	if method.IsStreamingServer() {

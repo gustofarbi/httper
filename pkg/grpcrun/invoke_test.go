@@ -94,6 +94,7 @@ func TestInvokeServerStreaming(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, codes.OK, outcome.Code)
+	assert.True(t, outcome.Streaming)
 	require.Len(t, outcome.Messages, 3)
 	assert.Len(t, streamed, 3)
 	assert.Contains(t, string(outcome.Messages[0]), "3")

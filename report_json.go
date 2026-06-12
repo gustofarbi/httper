@@ -25,6 +25,8 @@ type jsonRequest struct {
 	DurationMs int64      `json:"durationMs"`
 	Error      string     `json:"error,omitempty"`
 	Tests      []jsonTest `json:"tests,omitempty"`
+	// GRPC marks Status as a gRPC status code (0 = OK), not an HTTP status.
+	GRPC bool `json:"grpc,omitempty"`
 }
 
 type jsonTest struct {
@@ -59,6 +61,7 @@ func writeJSONReport(w io.Writer, suites []Suite, report Report) error {
 				Name:       result.Name,
 				Status:     result.StatusCode,
 				DurationMs: result.Duration.Milliseconds(),
+				GRPC:       result.GRPC,
 			}
 			if result.Err != nil {
 				r.Error = result.Err.Error()

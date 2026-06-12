@@ -13,6 +13,7 @@ import (
 // loadScript reads `> file.js` handler sources; both may be nil.
 func executeTemplates(
 	runner *Runner,
+	grpcRunner *GRPCRunner,
 	templates []*request.Template,
 	store *vars.Store,
 	engine *script.Engine,
@@ -35,14 +36,18 @@ func executeTemplates(
 			}
 		}
 
-		httpRequest, err := template.Build(store.Resolve, wd)
-		if err != nil {
-			slog.Error("building request", "err", err, "request", template.Name)
-			results = append(results, &Result{Name: template.Name, Err: err})
-			continue
+		var result *Result
+		if template.IsGRPC() {
+			result = grpcRunner.Send(template, store.Resolve)
+		} else {
+			httpRequest, err := template.Build(store.Resolve, wd)
+			if err != nil {
+				slog.Error("building request", "err", err, "request", template.Name)
+				results = append(results, &Result{Name: template.Name, Err: err})
+				continue
+			}
+			result = runner.Send(template, httpRequest)
 		}
-
-		result := runner.Send(template, httpRequest)
 		results = append(results, result)
 		if result.Err != nil {
 			continue
@@ -58,10 +63,17 @@ func executeTemplates(
 			continue
 		}
 
+		contentType := result.Header.Get("Content-Type")
+		if result.GRPC {
+			// gRPC bodies are always rendered as JSON; synthesize the type so
+			// response.body parses.
+			contentType = "application/json"
+		}
+
 		tests, err := engine.RunPost(code, &script.Response{
 			Status:      result.StatusCode,
 			Headers:     result.Header,
-			ContentType: result.Header.Get("Content-Type"),
+			ContentType: contentType,
 			Body:        result.Body,
 		})
 		result.Tests = tests

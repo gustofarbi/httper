@@ -64,6 +64,8 @@ func runResults(t *testing.T, srv *httptest.Server, content, wd string) ([]*Resu
 		Out:    buf,
 		Config: Config{},
 	}
+	// Same default as main.run: the global -timeout default caps gRPC calls.
+	grpcRunner := &GRPCRunner{Out: buf, Config: Config{}, Timeout: 30 * time.Second}
 	engine := &script.Engine{Globals: globals, Out: buf}
 
 	// Mirrors main.run's loader: handler script paths resolve inside wd.
@@ -87,7 +89,7 @@ func runResults(t *testing.T, srv *httptest.Server, content, wd string) ([]*Resu
 		}
 	}
 
-	results := executeTemplates(runner, httpFile.Templates, store, engine, wd, nil, loadScript)
+	results := executeTemplates(runner, grpcRunner, httpFile.Templates, store, engine, wd, nil, loadScript)
 	return results, buf.String()
 }
 
@@ -429,7 +431,7 @@ func TestE2ECLIVars(t *testing.T) {
 	runner := &Runner{Client: srv.Client(), Out: buf, Config: Config{}}
 	engine := &script.Engine{Globals: globals, Out: buf}
 
-	executeTemplates(runner, httpFile.Templates, store, engine, "", nil, nil)
+	executeTemplates(runner, &GRPCRunner{Out: buf}, httpFile.Templates, store, engine, "", nil, nil)
 
 	out := buf.String()
 	assert.Contains(t, out, "p: [from-cli]", "-var beats @vars")

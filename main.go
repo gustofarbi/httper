@@ -295,6 +295,13 @@ func runFile(cfg Config, input string, envVars map[string]string, saveRoot *os.R
 		SaveRoot: saveRoot,
 	}
 
+	grpcRunner := &GRPCRunner{
+		Out:      out,
+		Config:   cfg,
+		SaveRoot: saveRoot,
+		Timeout:  time.Duration(*timeout) * time.Second,
+	}
+
 	engine := &script.Engine{Globals: globals, Out: out}
 
 	loadScript := func(path string) (string, error) {
@@ -314,7 +321,7 @@ func runFile(cfg Config, input string, envVars map[string]string, saveRoot *os.R
 		return string(code), nil
 	}
 
-	return executeTemplates(runner, templates, store, engine, dir, envVars, loadScript), nil
+	return executeTemplates(runner, grpcRunner, templates, store, engine, dir, envVars, loadScript), nil
 }
 
 // newHTTPClient builds the base client; insecure swaps in a cloned transport
