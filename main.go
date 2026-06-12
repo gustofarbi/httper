@@ -69,6 +69,16 @@ var (
 		30,
 		"request timeout in seconds (0 disables; per-request @timeout wins)",
 	)
+	reportJUnit = flag.String(
+		"report-junit",
+		"",
+		"write a JUnit XML report to this path",
+	)
+	reportJSON = flag.String(
+		"report-json",
+		"",
+		"write a JSON report to this path",
+	)
 	cliVars = make(varFlags)
 )
 
@@ -253,6 +263,11 @@ func run(cfg Config, input string) (Report, error) {
 
 	report := buildReport(results, *strict)
 	printReport(os.Stdout, results, report, cfg.Verbose)
+
+	suites := []Suite{{Name: filepath.Base(input), Results: results}}
+	if err := writeReportFiles(suites, report, *reportJUnit, *reportJSON); err != nil {
+		return Report{}, fmt.Errorf("writing report files: %w", err)
+	}
 
 	return report, nil
 }
