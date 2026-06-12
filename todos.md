@@ -3,6 +3,6 @@
 - [x] saving result
 
 optionals:
-- vegeta
+- [x] vegeta (`-vegeta` flag + `@vegeta` directive)
 - websocket
 - [x] grpc (unary + server-streaming, reflection-based)

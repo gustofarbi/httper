@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"httper/pkg/request"
 	"httper/pkg/script"
 	"httper/pkg/vars"
@@ -14,6 +15,7 @@ import (
 func executeTemplates(
 	runner *Runner,
 	grpcRunner *GRPCRunner,
+	vegetaRunner *VegetaRunner,
 	templates []*request.Template,
 	store *vars.Store,
 	engine *script.Engine,
@@ -36,20 +38,37 @@ func executeTemplates(
 			}
 		}
 
+		// The -vegeta flag (a non-nil vegetaRunner) gates attacks; without it
+		// a marked request runs as a normal single request.
+		attack := vegetaRunner != nil && template.Directives.Vegeta != nil
+
 		var result *Result
-		if template.IsGRPC() {
+		switch {
+		case template.IsGRPC() && attack:
+			err := errors.New("@vegeta does not support GRPC requests")
+			slog.Error("running vegeta attack", "err", err, "request", template.Name)
+			result = &Result{Name: template.Name, Vegeta: true, Err: err}
+		case template.IsGRPC():
 			result = grpcRunner.Send(template, store.Resolve)
-		} else {
+		default:
 			httpRequest, err := template.Build(store.Resolve, wd)
 			if err != nil {
 				slog.Error("building request", "err", err, "request", template.Name)
 				results = append(results, &Result{Name: template.Name, Err: err})
 				continue
 			}
-			result = runner.Send(template, httpRequest)
+			if attack {
+				result = vegetaRunner.Send(template, httpRequest)
+			} else {
+				result = runner.Send(template, httpRequest)
+			}
 		}
 		results = append(results, result)
 		if result.Err != nil {
+			continue
+		}
+		// An attack has no single response for a handler script to inspect.
+		if result.Vegeta {
 			continue
 		}
 

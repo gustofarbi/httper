@@ -7,6 +7,7 @@ import (
 	"httper/pkg/script"
 	"httper/pkg/vars"
 	"io"
+	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"os"
@@ -43,6 +44,18 @@ func runContent(t *testing.T, srv *httptest.Server, content, wd string) string {
 // report assertions.
 func runResults(t *testing.T, srv *httptest.Server, content, wd string) ([]*Result, string) {
 	t.Helper()
+	return runResultsWith(t, srv, content, wd, false)
+}
+
+// runResultsVegeta is runResults with the -vegeta gate armed, so
+// @vegeta-marked requests attack instead of running once.
+func runResultsVegeta(t *testing.T, srv *httptest.Server, content, wd string) ([]*Result, string) {
+	t.Helper()
+	return runResultsWith(t, srv, content, wd, true)
+}
+
+func runResultsWith(t *testing.T, srv *httptest.Server, content, wd string, vegeta bool) ([]*Result, string) {
+	t.Helper()
 
 	content = strings.ReplaceAll(content, fixtureHost, srv.URL)
 
@@ -68,6 +81,19 @@ func runResults(t *testing.T, srv *httptest.Server, content, wd string) ([]*Resu
 	grpcRunner := &GRPCRunner{Out: buf, Config: Config{}, Timeout: 30 * time.Second}
 	engine := &script.Engine{Globals: globals, Out: buf}
 
+	// Mirrors main.run: a nil runner keeps the -vegeta gate off. The attacker
+	// builds its own transport, so it gets the test server's cert pool from
+	// the prepared client instead of main's -insecure path.
+	var vegetaRunner *VegetaRunner
+	if vegeta {
+		vegetaRunner = &VegetaRunner{
+			Out:       buf,
+			Config:    Config{},
+			Timeout:   30 * time.Second,
+			TLSConfig: srv.Client().Transport.(*http.Transport).TLSClientConfig,
+		}
+	}
+
 	// Mirrors main.run's loader: handler script paths resolve inside wd.
 	var loadScript func(path string) (string, error)
 	if wd != "" {
@@ -89,7 +115,7 @@ func runResults(t *testing.T, srv *httptest.Server, content, wd string) ([]*Resu
 		}
 	}
 
-	results := executeTemplates(runner, grpcRunner, httpFile.Templates, store, engine, wd, nil, loadScript)
+	results := executeTemplates(runner, grpcRunner, vegetaRunner, httpFile.Templates, store, engine, wd, nil, loadScript)
 	return results, buf.String()
 }
 
@@ -431,7 +457,7 @@ func TestE2ECLIVars(t *testing.T) {
 	runner := &Runner{Client: srv.Client(), Out: buf, Config: Config{}}
 	engine := &script.Engine{Globals: globals, Out: buf}
 
-	executeTemplates(runner, &GRPCRunner{Out: buf}, httpFile.Templates, store, engine, "", nil, nil)
+	executeTemplates(runner, &GRPCRunner{Out: buf}, nil, httpFile.Templates, store, engine, "", nil, nil)
 
 	out := buf.String()
 	assert.Contains(t, out, "p: [from-cli]", "-var beats @vars")

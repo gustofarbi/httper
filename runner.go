@@ -39,6 +39,9 @@ type Result struct {
 	// GRPC marks StatusCode as a gRPC status code (0 = OK) rather than an
 	// HTTP status.
 	GRPC bool
+	// Vegeta marks a load-test result: StatusCode is meaningless and any
+	// failing shot is already encoded in Err.
+	Vegeta bool
 }
 
 // clientFor copies the base client and applies per-request directives. The

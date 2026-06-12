@@ -22,6 +22,7 @@ type Directives struct {
 	NoCookieJar bool
 	NoLog       bool
 	Timeout     time.Duration
+	Vegeta      *VegetaDirective
 }
 
 // Script is a pre-request or response handler script: inline `{% ... %}`
@@ -254,6 +255,8 @@ func applyDirective(comment string, template *Template) {
 			return
 		}
 		template.Directives.Timeout = time.Duration(seconds) * time.Second
+	case "vegeta":
+		template.Directives.Vegeta = parseVegetaDirective(arg)
 	}
 }
 
