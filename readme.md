@@ -64,8 +64,9 @@ Authorization: Bearer {{token}}
 ### Requests
 
 - All standard HTTP methods, headers, and bodies: JSON,
-  `multipart/form-data` (with `< filename` file includes), and
-  `application/x-www-form-urlencoded` (pairs may span multiple lines)
+  `multipart/form-data` (with `< filename` file includes),
+  `application/x-www-form-urlencoded` (pairs may span multiple lines), and
+  any other content type sent verbatim (`text/plain`, XML, …)
 - HTTP/2 and HTTP/2 (Prior Knowledge)
 - Bearer auth (header passthrough) and Basic auth
   (`Authorization: Basic user password` is base64-encoded automatically)
